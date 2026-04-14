@@ -15,8 +15,10 @@ use crate::sim::{run_simulation, CancelFlag, OddsResult, SimConfig};
 use crate::tui::events::{is_quit, poll_event, AppEvent};
 use crate::tui::screens::{
     CommunityAction, CommunityScreen, HoleCardsScreen, OddsAction, OddsDisplayScreen,
-    SettingsAction, SettingsScreen, VariantSelectScreen,
+    SettingsAction, SettingsScreen, SolverConfigAction, SolverConfigScreen, SolverParams,
+    SolverProgress, SolverResultsAction, SolverResultsScreen, VariantSelectScreen,
 };
+use crate::tui::screens::variant_select::VariantSelectResult;
 use crate::tui::theme::Theme;
 
 pub enum Screen {
@@ -25,6 +27,8 @@ pub enum Screen {
     Community(CommunityScreen),
     OddsDisplay(OddsDisplayScreen),
     Settings(SettingsScreen, Box<Screen>), // Settings overlays the previous screen
+    SolverConfig(SolverConfigScreen),
+    SolverResults(SolverResultsScreen),
 }
 
 pub struct App {
@@ -32,6 +36,7 @@ pub struct App {
     pub game_state: Option<GameState>,
     pub sim_config: SimConfig,
     pub odds_result: Arc<RwLock<OddsResult>>,
+    pub solver_progress: Arc<RwLock<SolverProgress>>,
     pub cancel_flag: CancelFlag,
     pub running: bool,
 }
@@ -43,6 +48,7 @@ impl App {
             game_state: None,
             sim_config: SimConfig::default(),
             odds_result: Arc::new(RwLock::new(OddsResult::default())),
+            solver_progress: Arc::new(RwLock::new(SolverProgress::default())),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             running: true,
         }
@@ -81,10 +87,14 @@ impl App {
         let screen = self.screen.take();
         self.screen = match screen {
             Some(Screen::VariantSelect(mut s)) => {
-                if let Some(variant) = s.handle_key(key) {
-                    Some(Screen::HoleCards(HoleCardsScreen::new(variant)))
-                } else {
-                    Some(Screen::VariantSelect(s))
+                match s.handle_key(key) {
+                    Some(VariantSelectResult::Variant(variant)) => {
+                        Some(Screen::HoleCards(HoleCardsScreen::new(variant)))
+                    }
+                    Some(VariantSelectResult::GtoSolver) => {
+                        Some(Screen::SolverConfig(SolverConfigScreen::new()))
+                    }
+                    None => Some(Screen::VariantSelect(s)),
                 }
             }
             Some(Screen::HoleCards(mut s)) => {
@@ -195,6 +205,29 @@ impl App {
                     }
                 }
             }
+            Some(Screen::SolverConfig(mut s)) => {
+                match s.handle_key(key) {
+                    SolverConfigAction::None => Some(Screen::SolverConfig(s)),
+                    SolverConfigAction::Back => {
+                        Some(Screen::VariantSelect(VariantSelectScreen::new()))
+                    }
+                    SolverConfigAction::Run(params) => {
+                        self.start_solver(&params);
+                        Some(Screen::SolverResults(SolverResultsScreen::new()))
+                    }
+                }
+            }
+            Some(Screen::SolverResults(mut s)) => {
+                match s.handle_key(key) {
+                    SolverResultsAction::None => Some(Screen::SolverResults(s)),
+                    SolverResultsAction::Back => {
+                        Some(Screen::VariantSelect(VariantSelectScreen::new()))
+                    }
+                    SolverResultsAction::Reconfigure => {
+                        Some(Screen::SolverConfig(SolverConfigScreen::new()))
+                    }
+                }
+            }
             None => None,
         };
     }
@@ -232,6 +265,130 @@ impl App {
         thread::sleep(Duration::from_millis(5));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_solver(&self, params: &SolverParams) {
+        use crate::solver::action::BetSizingConfig;
+        use crate::solver::cfr::{CfrSolver, SolverConfig as CfrSolverConfig};
+        use crate::solver::postflop::build_river_tree;
+        use crate::solver::exploitability::compute_exploitability;
+
+        let progress_ref = Arc::clone(&self.solver_progress);
+
+        // Reset progress
+        if let Ok(mut p) = progress_ref.write() {
+            *p = SolverProgress {
+                total_iterations: params.iterations,
+                algorithm: Some(params.algorithm),
+                board: params.board.clone(),
+                pot: params.starting_pot,
+                stack: params.effective_stack,
+                ..SolverProgress::default()
+            };
+        }
+
+        let board = params.board.clone();
+        let algorithm = params.algorithm;
+        let iterations = params.iterations;
+        let bet_sizes = params.bet_sizes.clone();
+        let raise_sizes = params.raise_sizes.clone();
+        let starting_pot = params.starting_pot;
+        let effective_stack = params.effective_stack;
+        let max_raises = params.max_raises;
+
+        let progress_ref2 = Arc::clone(&progress_ref);
+
+        thread::spawn(move || {
+            // Build a 5-card board array for the river tree builder
+            let board_arr: [crate::cards::Card; 5] = match board.as_slice().try_into() {
+                Ok(arr) => arr,
+                Err(_) => {
+                    if let Ok(mut p) = progress_ref2.write() {
+                        p.done = true;
+                    }
+                    return;
+                }
+            };
+
+            let sizing = BetSizingConfig {
+                river_bets: bet_sizes.clone(),
+                river_raises: raise_sizes.clone(),
+                max_raises_per_street: max_raises,
+                // For a river-only solve, flop/turn sizes don't matter
+                flop_bets: vec![],
+                flop_raises: vec![],
+                turn_bets: vec![],
+                turn_raises: vec![],
+                always_allow_allin: true,
+            };
+
+            let tree = build_river_tree(board_arr, starting_pot, effective_stack, sizing);
+            let num_nodes = tree.nodes.len() as u32;
+            let num_info_sets = tree.num_info_sets;
+
+            let cfr_config = CfrSolverConfig {
+                algorithm,
+                iterations,
+                ..CfrSolverConfig::default()
+            };
+
+            let mut solver = CfrSolver::new(tree, cfr_config);
+
+            // Update progress with tree info
+            if let Ok(mut p) = progress_ref2.write() {
+                p.num_nodes = num_nodes;
+                p.num_info_sets = num_info_sets;
+            }
+
+            let mut game_value_sum = 0.0f64;
+            for i in 0..iterations {
+                let v = solver.run_iteration(i);
+                game_value_sum += v;
+
+                // Update progress every 10 iterations or on last
+                if i % 10 == 0 || i == iterations - 1 {
+                    if let Ok(mut p) = progress_ref2.write() {
+                        p.iteration = i + 1;
+                        p.game_value = game_value_sum / (i + 1) as f64;
+                    }
+                }
+            }
+
+            // Compute exploitability
+            let exploitability = compute_exploitability(&solver.tree, &solver.store, 1.0);
+            let profile = solver.average_strategy();
+
+            // Extract strategies for display: show info sets with their action probabilities
+            let mut strategies: Vec<(String, Vec<(String, f32)>)> = Vec::new();
+            for info_idx in 0..num_info_sets.min(20) {
+                let probs = profile.strategy_at(info_idx);
+                let actions = profile.actions_at(info_idx);
+                if actions.is_empty() {
+                    continue;
+                }
+                let label = format!("Info Set {}", info_idx);
+                let action_probs: Vec<(String, f32)> = actions
+                    .iter()
+                    .zip(probs.iter())
+                    .map(|(a, &p)| (format!("{}", a), p))
+                    .collect();
+                strategies.push((label, action_probs));
+            }
+
+            if let Ok(mut p) = progress_ref2.write() {
+                p.iteration = iterations;
+                p.done = true;
+                p.game_value = game_value_sum / iterations as f64;
+                p.exploitability = Some(exploitability);
+                p.strategies = strategies;
+            }
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn start_solver(&self, _params: &SolverParams) {
+        // Solver not available on wasm
+    }
+
     fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
@@ -252,6 +409,11 @@ impl App {
                 }
             }
             Some(Screen::Settings(s, _)) => s.render(frame, area),
+            Some(Screen::SolverConfig(s)) => s.render(frame, area),
+            Some(Screen::SolverResults(s)) => {
+                let progress = self.solver_progress.read().ok().map(|p| p.clone()).unwrap_or_default();
+                s.render(frame, area, &progress);
+            }
             None => {}
         }
     }

@@ -268,9 +268,11 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     fn start_solver(&self, params: &SolverParams) {
         use crate::solver::action::BetSizingConfig;
+        use crate::solver::abstraction::NoAbstraction;
         use crate::solver::cfr::{CfrSolver, SolverConfig as CfrSolverConfig};
-        use crate::solver::postflop::build_river_tree;
         use crate::solver::exploitability::compute_exploitability;
+        use crate::solver::postflop::{PostflopConfig, PostflopTreeBuilder};
+        use crate::solver::range::HandRange;
 
         let progress_ref = Arc::clone(&self.solver_progress);
 
@@ -282,6 +284,9 @@ impl App {
                 board: params.board.clone(),
                 pot: params.starting_pot,
                 stack: params.effective_stack,
+                street_name: params.street.name().to_string(),
+                range_oop: params.range_oop.clone(),
+                range_ip: params.range_ip.clone(),
                 ..SolverProgress::default()
             };
         }
@@ -294,34 +299,53 @@ impl App {
         let starting_pot = params.starting_pot;
         let effective_stack = params.effective_stack;
         let max_raises = params.max_raises;
+        let range_oop_str = params.range_oop.clone();
+        let range_ip_str = params.range_ip.clone();
 
         let progress_ref2 = Arc::clone(&progress_ref);
 
         thread::spawn(move || {
-            // Build a 5-card board array for the river tree builder
-            let board_arr: [crate::cards::Card; 5] = match board.as_slice().try_into() {
-                Ok(arr) => arr,
-                Err(_) => {
-                    if let Ok(mut p) = progress_ref2.write() {
-                        p.done = true;
-                    }
-                    return;
+            // Parse ranges (empty = full range)
+            let range_oop = if range_oop_str.is_empty() {
+                HandRange::full()
+            } else {
+                match HandRange::from_str(&range_oop_str) {
+                    Ok(r) => r,
+                    Err(_) => HandRange::full(),
+                }
+            };
+            let range_ip = if range_ip_str.is_empty() {
+                HandRange::full()
+            } else {
+                match HandRange::from_str(&range_ip_str) {
+                    Ok(r) => r,
+                    Err(_) => HandRange::full(),
                 }
             };
 
+            // Use the same bet sizes for all streets in the tree
             let sizing = BetSizingConfig {
+                flop_bets: bet_sizes.clone(),
+                flop_raises: raise_sizes.clone(),
+                turn_bets: bet_sizes.clone(),
+                turn_raises: raise_sizes.clone(),
                 river_bets: bet_sizes.clone(),
                 river_raises: raise_sizes.clone(),
                 max_raises_per_street: max_raises,
-                // For a river-only solve, flop/turn sizes don't matter
-                flop_bets: vec![],
-                flop_raises: vec![],
-                turn_bets: vec![],
-                turn_raises: vec![],
                 always_allow_allin: true,
             };
 
-            let tree = build_river_tree(board_arr, starting_pot, effective_stack, sizing);
+            let config = PostflopConfig {
+                board,
+                range_oop,
+                range_ip,
+                starting_pot,
+                effective_stack,
+                bet_config: sizing,
+                abstraction: Box::new(NoAbstraction::new(1326)),
+            };
+
+            let tree = PostflopTreeBuilder::new(config).build();
             let num_nodes = tree.nodes.len() as u32;
             let num_info_sets = tree.num_info_sets;
 

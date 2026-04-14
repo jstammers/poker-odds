@@ -17,6 +17,40 @@ pub enum SolverConfigAction {
     Run(SolverParams),
 }
 
+/// Which street to solve from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Street {
+    Flop,
+    Turn,
+    River,
+}
+
+impl Street {
+    pub fn board_cards(self) -> usize {
+        match self {
+            Street::Flop => 3,
+            Street::Turn => 4,
+            Street::River => 5,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Street::Flop => "Flop",
+            Street::Turn => "Turn",
+            Street::River => "River",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Street::Flop => Street::Turn,
+            Street::Turn => Street::River,
+            Street::River => Street::Flop,
+        }
+    }
+}
+
 /// Parameters collected by the config screen, passed to the solver.
 #[derive(Clone, Debug)]
 pub struct SolverParams {
@@ -28,11 +62,17 @@ pub struct SolverParams {
     pub starting_pot: f32,
     pub effective_stack: f32,
     pub max_raises: u8,
+    pub street: Street,
+    pub range_oop: String,
+    pub range_ip: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Field {
+    Street,
     Board,
+    RangeOOP,
+    RangeIP,
     Algorithm,
     Iterations,
     StartingPot,
@@ -43,8 +83,11 @@ enum Field {
 }
 
 impl Field {
-    const ALL: [Field; 8] = [
+    const ALL: [Field; 11] = [
+        Field::Street,
         Field::Board,
+        Field::RangeOOP,
+        Field::RangeIP,
         Field::Algorithm,
         Field::Iterations,
         Field::StartingPot,
@@ -56,7 +99,10 @@ impl Field {
 
     fn label(self) -> &'static str {
         match self {
+            Field::Street => "Street",
             Field::Board => "Board Cards",
+            Field::RangeOOP => "OOP Range",
+            Field::RangeIP => "IP Range",
             Field::Algorithm => "Algorithm",
             Field::Iterations => "Iterations",
             Field::StartingPot => "Starting Pot",
@@ -69,7 +115,10 @@ impl Field {
 
     fn hint(self) -> &'static str {
         match self {
-            Field::Board => "Enter 5 board cards for river solve (enter rank then suit)",
+            Field::Street => "Flop (3 cards), Turn (4 cards), or River (5 cards)",
+            Field::Board => "Enter board cards (rank then suit, e.g. Ah Kd Qs)",
+            Field::RangeOOP => "Out-of-position range, e.g. AA,AKs,QQ-TT,AJs-A9s",
+            Field::RangeIP => "In-position range, e.g. AA-22,AKs-A2s,KQs-KTs",
             Field::Algorithm => "CFR+ or DCFR (Discounted CFR converges faster)",
             Field::Iterations => "Number of CFR iterations (more = more precise, slower)",
             Field::StartingPot => "Total pot size in chips before this street",
@@ -79,11 +128,19 @@ impl Field {
             Field::MaxRaises => "Cap on raises per street (prevents infinite trees)",
         }
     }
+
+    /// Whether this field uses text/range editing mode.
+    fn is_text_edit(self) -> bool {
+        matches!(self, Field::RangeOOP | Field::RangeIP)
+    }
 }
 
 pub struct SolverConfigScreen {
     active_field: usize,
+    street: Street,
     board_input: MultiCardInput,
+    range_oop: String,
+    range_ip: String,
     algorithm: CfrAlgorithm,
     iterations: u32,
     starting_pot: f32,
@@ -100,7 +157,10 @@ impl SolverConfigScreen {
     pub fn new() -> Self {
         SolverConfigScreen {
             active_field: 0,
+            street: Street::River,
             board_input: MultiCardInput::new(5, "Board"),
+            range_oop: String::new(),
+            range_ip: String::new(),
             algorithm: CfrAlgorithm::CfrPlus,
             iterations: 1_000,
             starting_pot: 100.0,
@@ -114,14 +174,22 @@ impl SolverConfigScreen {
         }
     }
 
+    fn set_street(&mut self, street: Street) {
+        if self.street != street {
+            self.street = street;
+            self.board_input = MultiCardInput::new(street.board_cards(), "Board");
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> SolverConfigAction {
         if self.editing {
             return self.handle_edit_key(key);
         }
 
-        // When board field is active and not editing a numeric field,
-        // delegate to card input
-        if Field::ALL[self.active_field] == Field::Board {
+        let current_field = Field::ALL[self.active_field];
+
+        // When board field is active, delegate to card input
+        if current_field == Field::Board {
             match key.code {
                 KeyCode::Esc => return SolverConfigAction::Back,
                 KeyCode::Tab => {
@@ -135,7 +203,8 @@ impl SolverConfigScreen {
                     };
                 }
                 KeyCode::Enter if self.board_input.all_complete() => {
-                    return self.try_run();
+                    // Move to next field instead of running
+                    self.active_field = (self.active_field + 1) % Field::ALL.len();
                 }
                 _ => {
                     self.board_input.handle_key(key, &[]);
@@ -167,10 +236,11 @@ impl SolverConfigScreen {
                 };
             }
             KeyCode::Enter | KeyCode::Char('e') => {
-                let field = Field::ALL[self.active_field];
-                match field {
+                match current_field {
+                    Field::Street => {
+                        self.set_street(self.street.next());
+                    }
                     Field::Algorithm => {
-                        // Toggle algorithm
                         self.algorithm = match self.algorithm {
                             CfrAlgorithm::CfrPlus => CfrAlgorithm::Dcfr,
                             CfrAlgorithm::Dcfr => CfrAlgorithm::CfrPlus,
@@ -192,6 +262,8 @@ impl SolverConfigScreen {
         self.editing = true;
         self.error = None;
         self.edit_buffer = match Field::ALL[self.active_field] {
+            Field::RangeOOP => self.range_oop.clone(),
+            Field::RangeIP => self.range_ip.clone(),
             Field::Iterations => self.iterations.to_string(),
             Field::StartingPot => format!("{:.0}", self.starting_pot),
             Field::EffectiveStack => format!("{:.0}", self.effective_stack),
@@ -213,6 +285,9 @@ impl SolverConfigScreen {
     }
 
     fn handle_edit_key(&mut self, key: KeyEvent) -> SolverConfigAction {
+        let current_field = Field::ALL[self.active_field];
+        let is_text = current_field.is_text_edit();
+
         match key.code {
             KeyCode::Esc => {
                 self.editing = false;
@@ -226,8 +301,15 @@ impl SolverConfigScreen {
             KeyCode::Backspace => {
                 self.edit_buffer.pop();
             }
-            KeyCode::Char(c) if c.is_ascii_digit() || c == ',' || c == '.' => {
-                self.edit_buffer.push(c);
+            KeyCode::Char(c) => {
+                if is_text {
+                    // Range fields accept alphanumeric + commas + dashes
+                    if c.is_ascii_alphanumeric() || c == ',' || c == '-' || c == ' ' {
+                        self.edit_buffer.push(c);
+                    }
+                } else if c.is_ascii_digit() || c == ',' || c == '.' {
+                    self.edit_buffer.push(c);
+                }
             }
             _ => {}
         }
@@ -237,6 +319,39 @@ impl SolverConfigScreen {
     fn apply_edit(&mut self) {
         let field = Field::ALL[self.active_field];
         match field {
+            Field::RangeOOP => {
+                // Validate range string
+                let trimmed = self.edit_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.range_oop.clear();
+                } else {
+                    match crate::solver::range::HandRange::from_str(&trimmed) {
+                        Ok(_) => {
+                            self.range_oop = trimmed;
+                            self.error = None;
+                        }
+                        Err(e) => {
+                            self.error = Some(format!("Invalid OOP range: {}", e));
+                        }
+                    }
+                }
+            }
+            Field::RangeIP => {
+                let trimmed = self.edit_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.range_ip.clear();
+                } else {
+                    match crate::solver::range::HandRange::from_str(&trimmed) {
+                        Ok(_) => {
+                            self.range_ip = trimmed;
+                            self.error = None;
+                        }
+                        Err(e) => {
+                            self.error = Some(format!("Invalid IP range: {}", e));
+                        }
+                    }
+                }
+            }
             Field::Iterations => {
                 if let Ok(val) = self.edit_buffer.parse::<u32>() {
                     self.iterations = val.max(10).min(1_000_000);
@@ -284,8 +399,13 @@ impl SolverConfigScreen {
     }
 
     fn try_run(&mut self) -> SolverConfigAction {
+        let required_cards = self.street.board_cards();
         if !self.board_input.all_complete() {
-            self.error = Some("Enter all 5 board cards first".to_string());
+            self.error = Some(format!(
+                "Enter all {} board cards for {} solve",
+                required_cards,
+                self.street.name()
+            ));
             return SolverConfigAction::None;
         }
 
@@ -302,6 +422,9 @@ impl SolverConfigScreen {
             starting_pot: self.starting_pot,
             effective_stack: self.effective_stack,
             max_raises: self.max_raises,
+            street: self.street,
+            range_oop: self.range_oop.clone(),
+            range_ip: self.range_ip.clone(),
         })
     }
 
@@ -316,56 +439,67 @@ impl SolverConfigScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
+                Constraint::Length(2), // Street
                 Constraint::Length(4), // Board (card input)
-                Constraint::Length(3), // Algorithm
-                Constraint::Length(3), // Iterations
-                Constraint::Length(3), // Starting pot
-                Constraint::Length(3), // Effective stack
-                Constraint::Length(3), // Bet sizes
-                Constraint::Length(3), // Raise sizes
-                Constraint::Length(3), // Max raises
+                Constraint::Length(3), // OOP Range
+                Constraint::Length(3), // IP Range
+                Constraint::Length(2), // Algorithm
+                Constraint::Length(2), // Iterations
+                Constraint::Length(2), // Starting pot
+                Constraint::Length(2), // Effective stack
+                Constraint::Length(2), // Bet sizes
+                Constraint::Length(2), // Raise sizes
+                Constraint::Length(2), // Max raises
                 Constraint::Length(2), // Error
                 Constraint::Fill(1),  // spacer
                 Constraint::Length(1), // Help
             ])
             .split(inner);
 
-        // Board card input
-        self.render_board_field(frame, chunks[0]);
-
-        // Other fields
-        for (i, field) in Field::ALL.iter().enumerate().skip(1) {
-            let chunk_idx = i;
-            if chunk_idx < chunks.len() {
-                self.render_field(frame, chunks[chunk_idx], *field, i);
+        // Render each field
+        for (i, field) in Field::ALL.iter().enumerate() {
+            if i < chunks.len() {
+                match *field {
+                    Field::Board => self.render_board_field(frame, chunks[i]),
+                    Field::RangeOOP | Field::RangeIP => {
+                        self.render_range_field(frame, chunks[i], *field, i);
+                    }
+                    _ => self.render_field(frame, chunks[i], *field, i),
+                }
             }
         }
 
-        // Error
+        // Error (chunk index = Field::ALL.len() = 11)
         if let Some(ref err) = self.error {
             let err_para = Paragraph::new(Line::from(Span::styled(
                 format!("  {err}"),
                 Theme::lose(),
             )));
-            frame.render_widget(err_para, chunks[8]);
+            frame.render_widget(err_para, chunks[11]);
         }
 
-        // Help
-        self.render_help(frame, chunks[10]);
+        // Help (last chunk)
+        self.render_help(frame, chunks[13]);
     }
 
     fn render_board_field(&self, frame: &mut Frame, area: Rect) {
-        let is_active = self.active_field == 0;
+        let field_idx = Field::ALL.iter().position(|f| *f == Field::Board).unwrap();
+        let is_active = self.active_field == field_idx;
         let border_style = if is_active {
             Theme::border_focused()
         } else {
             Theme::border()
         };
+        let title_text = format!(
+            " Board Cards ({} for {}) ",
+            self.street.board_cards(),
+            self.street.name()
+        );
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
             .title(Span::styled(
-                " Board Cards ",
+                title_text,
                 if is_active { Theme::title() } else { Theme::dim() },
             ));
         let inner = block.inner(area);
@@ -417,6 +551,68 @@ impl SolverConfigScreen {
         );
     }
 
+    fn render_range_field(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        field: Field,
+        field_idx: usize,
+    ) {
+        let is_active = self.active_field == field_idx;
+        let is_editing = is_active && self.editing;
+
+        let range_str = match field {
+            Field::RangeOOP => &self.range_oop,
+            Field::RangeIP => &self.range_ip,
+            _ => unreachable!(),
+        };
+
+        let display_value = if is_editing {
+            format!("{}_", self.edit_buffer)
+        } else if range_str.is_empty() {
+            "(all hands — press Enter to set range)".to_string()
+        } else {
+            // Show range string and combo count
+            match crate::solver::range::HandRange::from_str(range_str) {
+                Ok(r) => {
+                    let combos = r.weights.iter().filter(|&&w| w > 0.0).count();
+                    format!("{range_str}  ({combos} combos)")
+                }
+                Err(_) => format!("{range_str}  (invalid)"),
+            }
+        };
+
+        let label_style = if is_active {
+            Theme::highlight()
+        } else {
+            Theme::normal()
+        };
+        let value_style = if is_editing {
+            Theme::accent()
+        } else if range_str.is_empty() {
+            Theme::dim()
+        } else if is_active {
+            Theme::win()
+        } else {
+            Theme::normal()
+        };
+        let prefix = if is_active { "▶ " } else { "  " };
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(prefix, Theme::highlight()),
+                Span::styled(field.label(), label_style.add_modifier(Modifier::BOLD)),
+                Span::styled(": ", Theme::dim()),
+                Span::styled(display_value, value_style),
+            ]),
+            Line::from(Span::styled(
+                format!("   {}", field.hint()),
+                Theme::dim(),
+            )),
+        ];
+        frame.render_widget(Paragraph::new(lines), area);
+    }
+
     fn render_field(&self, frame: &mut Frame, area: Rect, field: Field, field_idx: usize) {
         let is_active = self.active_field == field_idx;
         let is_editing = is_active && self.editing;
@@ -425,6 +621,10 @@ impl SolverConfigScreen {
             format!("{}_", self.edit_buffer)
         } else {
             match field {
+                Field::Street => format!(
+                    "{}  (Enter to toggle)",
+                    self.street.name()
+                ),
                 Field::Algorithm => match self.algorithm {
                     CfrAlgorithm::CfrPlus => "CFR+".to_string(),
                     CfrAlgorithm::Dcfr => "DCFR (Discounted)".to_string(),
@@ -445,7 +645,7 @@ impl SolverConfigScreen {
                     .collect::<Vec<_>>()
                     .join(", "),
                 Field::MaxRaises => self.max_raises.to_string(),
-                Field::Board => String::new(), // Handled separately
+                _ => String::new(),
             }
         };
 

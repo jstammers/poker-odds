@@ -45,6 +45,12 @@ pub struct SolverProgress {
     pub pot: f32,
     /// Stack size.
     pub stack: f32,
+    /// Street name (Flop/Turn/River).
+    pub street_name: String,
+    /// OOP range string for display.
+    pub range_oop: String,
+    /// IP range string for display.
+    pub range_ip: String,
 }
 
 pub struct SolverResultsScreen {
@@ -73,14 +79,16 @@ impl SolverResultsScreen {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, progress: &SolverProgress) {
+        let has_ranges = !progress.range_oop.is_empty() || !progress.range_ip.is_empty();
+        let title_height = if has_ranges { 5 } else { 3 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // title
-                Constraint::Length(3), // progress bar
-                Constraint::Length(5), // stats
-                Constraint::Fill(1),  // strategy table
-                Constraint::Length(1), // help
+                Constraint::Length(title_height), // title + ranges
+                Constraint::Length(3),            // progress bar
+                Constraint::Length(5),            // stats
+                Constraint::Fill(1),             // strategy table
+                Constraint::Length(1),            // help
             ])
             .split(area);
 
@@ -96,6 +104,12 @@ impl SolverResultsScreen {
             Some(CfrAlgorithm::CfrPlus) => "CFR+",
             Some(CfrAlgorithm::Dcfr) => "DCFR",
             None => "CFR",
+        };
+
+        let street_name = if progress.street_name.is_empty() {
+            "River"
+        } else {
+            &progress.street_name
         };
 
         let board_spans: Vec<Span> = progress
@@ -115,14 +129,14 @@ impl SolverResultsScreen {
 
         let mut title_spans = vec![
             Span::styled(
-                format!("  GTO Solver — {algo_name}  "),
+                format!("  GTO Solver — {algo_name} ({street_name})  "),
                 Theme::title().add_modifier(Modifier::BOLD),
             ),
             Span::styled("Board: ", Theme::dim()),
         ];
         title_spans.extend(board_spans);
 
-        let title = Paragraph::new(vec![
+        let mut lines = vec![
             Line::from(title_spans),
             Line::from(Span::styled(
                 format!(
@@ -131,7 +145,29 @@ impl SolverResultsScreen {
                 ),
                 Theme::dim(),
             )),
-        ]);
+        ];
+
+        // Show ranges if specified
+        if !progress.range_oop.is_empty() || !progress.range_ip.is_empty() {
+            let oop_display = if progress.range_oop.is_empty() {
+                "all hands"
+            } else {
+                &progress.range_oop
+            };
+            let ip_display = if progress.range_ip.is_empty() {
+                "all hands"
+            } else {
+                &progress.range_ip
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  OOP: ", Theme::dim()),
+                Span::styled(oop_display.to_string(), Theme::normal()),
+                Span::styled("  |  IP: ", Theme::dim()),
+                Span::styled(ip_display.to_string(), Theme::normal()),
+            ]));
+        }
+
+        let title = Paragraph::new(lines);
         frame.render_widget(title, area);
     }
 

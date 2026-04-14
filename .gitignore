@@ -1,0 +1,4 @@
+/target
+web/node_modules/
+web/wasm/         # wasm-pack output — generated, not committed
+web/dist/

@@ -2,4 +2,6 @@
 web/node_modules/
 web/wasm/         # wasm-pack output — generated, not committed
 web/dist/
+web/src-tauri/target/
+web/src-tauri/gen/schemas/
 **/.DS_Store

@@ -4,29 +4,55 @@
 
 # poker-odds
 
-A poker odds calculator with two interfaces: a terminal UI (ratatui) and a React/TypeScript web app powered by a WebAssembly build of the same Rust engine. Supports Texas Hold'em, Omaha Hold'em, 7-Card Stud, and 5-Card Draw.
-
-The web app is deployed automatically to GitHub Pages on every push to `main`.
+A poker odds calculator and GTO solver with three interfaces: a native macOS desktop app (Tauri v2), a browser-based web app (WASM), and a terminal UI (ratatui). All three share the same Rust engine. Supports Texas Hold'em, Omaha Hold'em, 7-Card Stud, and 5-Card Draw.
 
 ---
 
 ## Features
 
-- **Four variants:** Texas Hold'em, Omaha Hold'em, 7-Card Stud, 5-Card Draw
-- **Adaptive simulation:** exact enumeration when combinations are 50,000 or fewer; Monte Carlo otherwise
-- **Parallel native execution:** Rayon distributes Monte Carlo iterations across all available CPU cores
-- **Responsive web UI:** WASM simulation runs in a Web Worker so the page never blocks
-- **O(1) hand evaluation:** Cactus Kev lookup tables — no runtime sorting or hashing in the hot path
+- **Odds calculator** — four game variants, adaptive simulation (exact enumeration or Monte Carlo)
+- **GTO solver** — CFR+ and Discounted CFR for heads-up postflop strategy computation (flop, turn, river)
+- **Desktop app** — native macOS window via Tauri v2, with solver progress streaming and cancellation
+- **Web app** — deploys to GitHub Pages; WASM simulation runs in a Web Worker so the page never blocks
+- **Terminal UI** — ratatui-based TUI for quick command-line use
+- **O(1) hand evaluation** — Cactus Kev lookup tables with no runtime sorting in the hot path
+- **Parallel native execution** — Rayon distributes Monte Carlo iterations across all CPU cores
 
 ---
 
-## Getting started
+## Quick start
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) via **rustup** (not Homebrew)
-- [`wasm-pack`](https://rustwasm.github.io/wasm-pack/installer/): `cargo install wasm-pack`
-- Node.js 18+ and npm
+| Tool | Install |
+|---|---|
+| [Rust](https://rustup.rs/) (via rustup) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| [wasm-pack](https://rustwasm.github.io/wasm-pack/) | `cargo install wasm-pack` |
+| Node.js 20+ and npm | [nodejs.org](https://nodejs.org/) or `brew install node` |
+
+### Desktop app (macOS, recommended)
+
+```sh
+make tauri-dev        # builds WASM, installs JS deps, launches the Tauri dev window
+```
+
+To produce a release `.dmg`:
+
+```sh
+make tauri-build      # outputs to web/src-tauri/target/release/bundle/dmg/
+```
+
+### Web app (browser)
+
+```sh
+make setup            # installs JS deps, builds WASM, starts Vite dev server
+```
+
+Or if WASM is already built:
+
+```sh
+make dev              # starts Vite dev server on http://localhost:5173
+```
 
 ### Terminal UI
 
@@ -34,24 +60,10 @@ The web app is deployed automatically to GitHub Pages on every push to `main`.
 cargo run --release
 ```
 
-### Web app (development)
-
-First-time setup:
+### Run tests
 
 ```sh
-make setup        # installs JS deps, builds WASM, starts dev server
-```
-
-Subsequent runs (after the WASM is already built):
-
-```sh
-make dev
-```
-
-### Web app (production build)
-
-```sh
-make all          # builds WASM then the production JS bundle → web/dist/
+make test             # all Rust unit tests (55 tests)
 ```
 
 ---
@@ -60,85 +72,148 @@ make all          # builds WASM then the production JS bundle → web/dist/
 
 | Target | Description |
 |---|---|
+| `make tauri-dev` | Build WASM, install JS deps, launch Tauri desktop app in dev mode |
+| `make tauri-build` | Build a release `.dmg` for macOS |
 | `make wasm` | Compile Rust to WASM + JS bindings via wasm-pack |
 | `make dev` | Start the Vite dev server (run `make wasm` first) |
 | `make build` | Production JS bundle (`web/dist/`) |
 | `make test` | Run Rust unit tests (native) |
 | `make check` | `cargo check` for the native build |
 | `make check-wasm` | `cargo check` targeting `wasm32-unknown-unknown` |
+| `make check-tauri` | `cargo check` for the Tauri backend crate |
 | `make setup` | First-time setup: install JS deps, build WASM, start dev server |
 | `make all` | Build WASM then the production JS bundle |
-| `make clean` | Remove Cargo build artefacts, `web/wasm/`, `web/dist/`, `web/node_modules/` |
+| `make clean` | Remove all build artifacts |
 
 > **Toolchain note:** if both Homebrew rustc and rustup rustc are present, the Makefile automatically prepends the rustup bin directory to `PATH` for all WASM-related targets, ensuring wasm-pack picks up the correct toolchain.
 
 ---
 
-## Architecture
+## Project structure
 
 ```
 poker-odds/
-├── src/
-│   ├── lib.rs                  # crate root — module declarations
-│   ├── main.rs                 # native TUI binary entry point
-│   ├── wasm.rs                 # wasm-bindgen public API (WASM target only)
+├── src/                            # Rust library + binaries
+│   ├── lib.rs                      # crate root
+│   ├── main.rs                     # native TUI entry point
+│   ├── wasm.rs                     # wasm-bindgen API (WASM target only)
 │   ├── cards/
-│   │   ├── card.rs             # Card, Rank, Suit primitives
-│   │   └── deck.rs             # Deck with fast random deal
+│   │   ├── card.rs                 # Card, Rank, Suit primitives
+│   │   └── deck.rs                 # Deck with fast random deal
 │   ├── eval/
-│   │   ├── evaluator.rs        # evaluate_five, best_five_of_seven, evaluate_omaha
-│   │   ├── lookup.rs           # Cactus Kev lookup table construction (lazy_static)
-│   │   └── rank.rs             # HandValue, HandCategory ordering
+│   │   ├── evaluator.rs            # evaluate_five, best_five_of_seven, evaluate_omaha
+│   │   ├── lookup.rs               # Cactus Kev lookup tables (lazy_static)
+│   │   └── rank.rs                 # HandValue, HandCategory ordering
 │   ├── game/
-│   │   ├── state.rs            # GameState (hole cards, community, opponent count)
-│   │   └── variant.rs          # GameVariant, BettingRound enums
+│   │   ├── state.rs                # GameState (hole, community, opponents)
+│   │   └── variant.rs              # GameVariant enum
 │   ├── sim/
-│   │   ├── engine.rs           # Monte Carlo + exact enumeration runner
-│   │   ├── config.rs           # SimConfig (iterations, threshold, threads)
-│   │   └── result.rs           # OddsResult, SimAccumulator, SimMethod
-│   └── tui/                    # ratatui TUI (native only)
-│       ├── app.rs
-│       ├── events.rs
-│       ├── screens/            # variant select, hole cards, community, odds display
-│       └── widgets/            # card input, card display
-├── web/
+│   │   ├── engine.rs               # Monte Carlo + exact enumeration
+│   │   ├── config.rs               # SimConfig (iterations, threshold, threads)
+│   │   └── result.rs               # OddsResult, SimAccumulator
+│   ├── solver/                     # GTO solver (native only)
+│   │   ├── cfr.rs                  # CFR+ and Discounted CFR iteration
+│   │   ├── postflop.rs             # Postflop game tree builder
+│   │   ├── game_tree.rs            # Game tree node types
+│   │   ├── action.rs               # Poker actions + bet sizing config
+│   │   ├── range.rs                # Hand range parser ("AA,AKs,QQ-TT")
+│   │   ├── strategy.rs             # Strategy profile extraction
+│   │   ├── info_set.rs             # Information set abstraction
+│   │   ├── abstraction.rs          # Card abstraction interface
+│   │   ├── exploitability.rs       # Exploitability computation
+│   │   ├── toy_games.rs            # Kuhn/Leduc poker for testing
+│   │   └── upi.rs                  # Universal Poker Interface
+│   └── tui/                        # ratatui TUI (native only)
+│       ├── app.rs                  # TUI application loop
+│       ├── events.rs               # Input event handling
+│       ├── screens/                # Variant select, card input, solver config, results
+│       └── widgets/                # Card display widgets
+│
+├── web/                            # React + Vite frontend
 │   ├── src/
-│   │   ├── App.tsx             # top-level React component
-│   │   ├── components/         # VariantPicker, CardGrid, CardSlots, OddsDisplay
+│   │   ├── App.tsx                 # Root component (tab routing, backend init)
+│   │   ├── api/
+│   │   │   ├── backend.ts          # Backend interface + runtime detection
+│   │   │   ├── wasm-backend.ts     # Web Worker / WASM implementation
+│   │   │   └── tauri-backend.ts    # Tauri invoke / event implementation
+│   │   ├── pages/
+│   │   │   ├── OddsCalculator.tsx  # Odds calculator page
+│   │   │   └── GtoSolver.tsx       # GTO solver page (desktop only)
+│   │   ├── components/
+│   │   │   ├── CardGrid.tsx        # 13x4 interactive card picker
+│   │   │   ├── CardSlots.tsx       # Selected card display slots
+│   │   │   ├── OddsDisplay.tsx     # Win/tie/lose bars + hand distribution
+│   │   │   ├── VariantPicker.tsx   # Game variant selector
+│   │   │   ├── TabNav.tsx          # Tab navigation header
+│   │   │   ├── RangeInput.tsx      # Range string input with validation
+│   │   │   ├── ProgressBar.tsx     # Solver progress bar
+│   │   │   └── StrategyDisplay.tsx # Strategy results table
+│   │   ├── types/
+│   │   │   ├── odds.ts             # Odds calculator TypeScript types
+│   │   │   └── solver.ts           # Solver TypeScript types
 │   │   ├── workers/
-│   │   │   └── sim.worker.ts   # Web Worker — calls WASM calculate_odds()
-│   │   └── types/odds.ts       # TypeScript types for the WASM boundary
-│   ├── wasm/                   # wasm-pack output (generated, gitignored)
-│   ├── vite.config.ts
-│   └── package.json
-├── benches/
-│   ├── eval_bench.rs           # criterion benchmarks for the evaluator
-│   └── sim_bench.rs            # criterion benchmarks for the simulator
+│   │   │   └── sim.worker.ts       # Web Worker for WASM simulation
+│   │   └── styles/
+│   │       └── index.css           # All styles
+│   │
+│   ├── src-tauri/                  # Tauri v2 desktop backend
+│   │   ├── Cargo.toml              # Depends on poker-odds via path = "../.."
+│   │   ├── tauri.conf.json         # Window config, dev server URL, build commands
+│   │   ├── capabilities/
+│   │   │   └── default.json        # IPC permissions
+│   │   └── src/
+│   │       ├── main.rs             # Tauri entry point
+│   │       └── lib.rs              # Tauri commands (odds calc + solver + range validation)
+│   │
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── benches/                        # Criterion benchmarks
+├── .github/workflows/
+│   ├── deploy.yml                  # WASM web app → GitHub Pages
+│   └── release.yml                 # Tauri .dmg → GitHub Releases
 ├── Cargo.toml
 └── Makefile
 ```
 
 ---
 
-## How it works
+## Architecture
+
+### Dual-mode frontend
+
+The React frontend runs in two modes using the same codebase:
+
+| Mode | Backend | Solver available | How it runs |
+|---|---|---|---|
+| **Web** (WASM) | `WasmBackend` — Web Worker calling `wasm-bindgen` exports | No | `npm run dev` or GitHub Pages |
+| **Desktop** (Tauri) | `TauriBackend` — `invoke()` IPC to Rust commands | Yes | `npx tauri dev` or `.dmg` |
+
+Runtime detection uses `window.__TAURI_INTERNALS__` to select the correct backend at startup. The GTO Solver tab only appears in desktop mode.
 
 ### Hand evaluator (Cactus Kev algorithm)
 
-`evaluate_five` classifies any 5-card hand in O(1) using three pre-built lookup tables that are constructed once at startup:
+`evaluate_five` classifies any 5-card hand in O(1) using three pre-built lookup tables:
 
-1. **Flush/straight-flush** — if all five suits match, index `FLUSH_TABLE` with a 13-bit rank bitmask. Straight flushes and regular flushes both resolve here.
-2. **Straight / high card** — if the rank bitmask has exactly 5 distinct bits set (no pairs), index `UNIQUE5_TABLE` with the same bitmask. This covers all C(13,5) = 1,287 non-flush combinations.
-3. **Paired hands** — multiply together each rank's assigned prime number (2→2, 3→3, 5→5, …, Ace→41). The product is unique per hand category, so `PAIRS_TABLE` is binary-searched in O(log n) to find the Cactus Kev rank.
+1. **Flush/straight-flush** — if all five suits match, index `FLUSH_TABLE` with a 13-bit rank bitmask
+2. **Straight / high card** — if the rank bitmask has exactly 5 distinct bits, index `UNIQUE5_TABLE`
+3. **Paired hands** — multiply each rank's prime number; binary-search the product in `PAIRS_TABLE`
 
-`best_five_of_seven` hard-codes all 21 index combinations for the C(7,5) enumeration, avoiding itertools overhead. `evaluate_omaha` loops over the 6 × 10 = 60 legal hole+board combinations mandated by Omaha rules.
+`best_five_of_seven` hard-codes all 21 C(7,5) index combinations. `evaluate_omaha` loops over the 60 legal combinations mandated by Omaha rules.
 
 ### Simulation engine
 
-`run_simulation` in `src/sim/engine.rs` first counts the remaining combinations. If the count is at or below `exact_threshold` (default 50,000), it exhaustively evaluates every runout. Otherwise it runs Monte Carlo.
+`run_simulation` counts remaining combinations. If at or below `exact_threshold` (default 50,000), it exhaustively evaluates every runout. Otherwise it runs Monte Carlo, parallelised with Rayon on native (independent `Xoshiro256++` RNG per thread, lock-free accumulation).
 
-On native builds, Monte Carlo is parallelised with Rayon: work is split into chunks, each chunk is distributed across all CPU cores with independent `Xoshiro256++` RNG streams (seeded by XOR-mixing a chunk offset with a per-thread constant), and per-thread `SimAccumulator` structs are merged without any lock in the hot path.
+### GTO solver
 
-On WASM, the single-threaded path is used, and `calculate_odds` is called from a Web Worker so the React UI remains responsive.
+The solver uses Counterfactual Regret Minimization to approximate Nash equilibrium strategies for heads-up postflop play:
+
+- **CFR+** clamps negative regrets to zero each iteration (faster convergence)
+- **Discounted CFR** applies time-dependent discounting to past regrets and strategies
+- Supports flop, turn, and river starting boards with configurable bet sizing (pot fractions)
+- Hand ranges use standard notation (`AA,AKs,QQ-TT,A5s-A2s`)
+- Exploitability is computed after solving to measure strategy quality (lower = closer to Nash)
 
 ---
 
@@ -158,6 +233,10 @@ The default simulation runs 500,000 iterations, completing in roughly 45 ms nati
 
 ## Deployment
 
-The GitHub Actions workflow at `.github/workflows/deploy.yml` runs on every push to `main`. It installs the Rust toolchain with the `wasm32-unknown-unknown` target, builds the WASM artefact with wasm-pack, builds the Vite production bundle, and deploys `web/dist/` to GitHub Pages.
+### Web app (GitHub Pages)
 
-Pull requests trigger the build job only (no deploy step).
+The workflow at `.github/workflows/deploy.yml` runs on every push to `main`. It builds WASM with wasm-pack, bundles with Vite, and deploys `web/dist/` to GitHub Pages.
+
+### Desktop app (GitHub Releases)
+
+The workflow at `.github/workflows/release.yml` triggers on version tags (`v*`). It builds the Tauri app for macOS (aarch64 + x86_64) and uploads `.dmg` files to the GitHub Release.

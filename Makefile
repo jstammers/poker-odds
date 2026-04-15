@@ -4,7 +4,8 @@
 # Homebrew's rustc does NOT have wasm32-unknown-unknown; rustup's does.
 # All WASM-related targets force rustup's toolchain via RUSTUP_RUSTC / PATH override.
 
-.PHONY: all wasm dev build install test check check-wasm clean setup
+.PHONY: all wasm dev build install test check check-wasm check-tauri clean setup \
+        tauri-dev tauri-build preview
 
 # ── Top-level targets ─────────────────────────────────────────────────────────
 
@@ -41,9 +42,23 @@ check:
 check-wasm:
 	RUSTC="$(RUSTUP_RUSTC)" cargo check --lib --target wasm32-unknown-unknown
 
+## Check Tauri backend crate
+check-tauri:
+	cd web/src-tauri && cargo check
+
 ## Run Rust unit tests (native)
 test:
 	cargo test
+
+# ── Tauri desktop app ─────────────────────────────────────────────────────────
+
+## Launch Tauri desktop app in dev mode (builds WASM first)
+tauri-dev: wasm install
+	cd web && npx tauri dev
+
+## Build a release .dmg for macOS
+tauri-build: wasm install
+	cd web && npx tauri build
 
 # ── JS ────────────────────────────────────────────────────────────────────────
 
@@ -60,4 +75,5 @@ setup: install wasm dev
 
 clean:
 	cargo clean
+	cd web/src-tauri && cargo clean 2>/dev/null || true
 	rm -rf web/wasm web/dist web/node_modules

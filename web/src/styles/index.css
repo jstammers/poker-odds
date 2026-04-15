@@ -494,3 +494,280 @@ h1,h2,h3 { font-weight: 600; }
   font-weight: 600;
   color: var(--text-dim);
 }
+
+/* ── Loading splash ──────────────────────────────────────────────────────────── */
+.loading-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+}
+
+/* ── Tab navigation ──────────────────────────────────────────────────────────── */
+.tab-nav {
+  display: flex;
+  gap: 4px;
+}
+.tab-btn {
+  padding: 6px 16px;
+  font-size: .8rem;
+  font-weight: 600;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  transition: background .15s, color .15s;
+}
+.tab-btn:hover { background: var(--surface2); color: var(--text); }
+.tab-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── Settings toggle row (for OddsCalculator page) ──────────────────────────── */
+.settings-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 20px 0;
+}
+
+/* ── Street selector ─────────────────────────────────────────────────────────── */
+.street-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.street-selector .variant-btn {
+  text-align: center;
+}
+.variant-desc {
+  display: block;
+  font-size: .65rem;
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* ── Range input ─────────────────────────────────────────────────────────────── */
+.range-input {
+  margin-bottom: 12px;
+}
+.range-label {
+  display: block;
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.range-field {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: .85rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  transition: border-color .15s;
+}
+.range-field:focus { border-color: var(--border-focus); outline: none; }
+.range-field.range-error { border-color: var(--lose); }
+.range-info {
+  margin-top: 4px;
+  font-size: .72rem;
+  min-height: 1.1em;
+}
+.range-combos { color: var(--win); font-weight: 600; }
+.range-error-text { color: var(--lose); }
+.range-hint { color: var(--text-faint); }
+
+/* ── Config grid (solver settings) ───────────────────────────────────────────── */
+.config-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.config-label {
+  font-size: .78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.config-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: .85rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+}
+.config-input:focus { border-color: var(--border-focus); outline: none; }
+.config-toggle {
+  display: flex;
+  gap: 4px;
+}
+.toggle-btn {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: .8rem;
+  font-weight: 600;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all .15s;
+}
+.toggle-btn:hover { background: var(--surface3); }
+.toggle-btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Solver progress bar ─────────────────────────────────────────────────────── */
+.solver-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.progress-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progress-label {
+  font-size: .85rem;
+  font-weight: 600;
+}
+.progress-stats {
+  flex: 1;
+  font-size: .78rem;
+  color: var(--text-dim);
+}
+.btn-cancel {
+  padding: 4px 12px;
+  font-size: .75rem;
+  font-weight: 600;
+  background: var(--lose-bg);
+  border: 1px solid var(--lose);
+  border-radius: var(--radius);
+  color: var(--lose);
+  transition: opacity .15s;
+}
+.btn-cancel:hover { opacity: .8; }
+.progress-bar-track {
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width .3s ease;
+}
+.progress-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: .72rem;
+  color: var(--text-dim);
+}
+
+/* ── Strategy display ────────────────────────────────────────────────────────── */
+.strategy-display {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.strategy-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.stat {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-label {
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text-dim);
+}
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.stat-value.win  { color: var(--win); }
+.stat-value.tie  { color: var(--tie); }
+.stat-value.lose { color: var(--lose); }
+
+.strategy-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.strategy-empty {
+  color: var(--text-dim);
+  font-size: .85rem;
+  padding: 12px 0;
+}
+.strategy-row {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.strategy-label {
+  display: block;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.strategy-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.action-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.action-name {
+  width: 60px;
+  font-size: .72rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.action-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--surface3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.action-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+.action-bar-fill.bar-high { background: var(--win); }
+.action-bar-fill.bar-mid  { background: var(--tie); }
+.action-bar-fill.bar-low  { background: var(--lose); }
+.action-pct {
+  width: 44px;
+  text-align: right;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}

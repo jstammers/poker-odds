@@ -9,10 +9,18 @@ use ratatui::{
 use crate::game::GameVariant;
 use crate::tui::theme::Theme;
 
+pub enum VariantSelectResult {
+    Variant(GameVariant),
+    GtoSolver,
+}
+
 pub struct VariantSelectScreen {
     pub selected: usize,
     pub list_state: ListState,
 }
+
+/// Total items: 4 game variants + 1 GTO Solver separator
+const TOTAL_ITEMS: usize = 5; // 4 variants + GTO Solver
 
 impl VariantSelectScreen {
     pub fn new() -> Self {
@@ -21,7 +29,7 @@ impl VariantSelectScreen {
         s
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<GameVariant> {
+    pub fn handle_key(&mut self, key: KeyEvent) -> Option<VariantSelectResult> {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.selected > 0 {
@@ -30,13 +38,20 @@ impl VariantSelectScreen {
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected < GameVariant::ALL.len() - 1 {
+                if self.selected < TOTAL_ITEMS - 1 {
                     self.selected += 1;
                     self.list_state.select(Some(self.selected));
                 }
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                return Some(GameVariant::ALL[self.selected]);
+                if self.selected < GameVariant::ALL.len() {
+                    return Some(VariantSelectResult::Variant(GameVariant::ALL[self.selected]));
+                } else {
+                    return Some(VariantSelectResult::GtoSolver);
+                }
+            }
+            KeyCode::Char('g') => {
+                return Some(VariantSelectResult::GtoSolver);
             }
             _ => {}
         }
@@ -49,7 +64,7 @@ impl VariantSelectScreen {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Fill(1),
-                Constraint::Length(18),
+                Constraint::Length(22),
                 Constraint::Fill(1),
             ])
             .split(area);
@@ -72,13 +87,13 @@ impl VariantSelectScreen {
                 "♠ ♥ POKER ODDS CALCULATOR ♦ ♣",
                 Theme::title().add_modifier(Modifier::BOLD),
             )]),
-            Line::from(Span::styled("Select a Game Variant", Theme::dim())),
+            Line::from(Span::styled("Select a Mode", Theme::dim())),
         ])
         .alignment(Alignment::Center);
         frame.render_widget(title, title_area);
 
-        // Variant list
-        let items: Vec<ListItem> = GameVariant::ALL.iter().map(|v| {
+        // Build list items: variants + separator + GTO Solver
+        let mut items: Vec<ListItem> = GameVariant::ALL.iter().map(|v| {
             let main = Line::from(vec![
                 Span::styled(format!("  {}  ", v.name()), Theme::highlight()),
             ]);
@@ -88,12 +103,23 @@ impl VariantSelectScreen {
             ListItem::new(vec![main, desc, Line::from("")])
         }).collect();
 
+        // GTO Solver option
+        items.push(ListItem::new(vec![
+            Line::from(vec![
+                Span::styled("  GTO Solver  ", Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Compute optimal heads-up strategies (CFR)", Theme::dim()),
+            ]),
+            Line::from(""),
+        ]));
+
         let list = List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Theme::border_focused())
-                    .title(Span::styled(" Choose Variant ", Theme::title())),
+                    .title(Span::styled(" Choose Mode ", Theme::title())),
             )
             .highlight_style(
                 Style::default()
@@ -112,6 +138,8 @@ impl VariantSelectScreen {
                 Span::styled(" Navigate  ", Theme::dim()),
                 Span::styled("Enter", Theme::highlight()),
                 Span::styled(" Select  ", Theme::dim()),
+                Span::styled("g", Theme::highlight()),
+                Span::styled(" GTO Solver  ", Theme::dim()),
                 Span::styled("q", Theme::highlight()),
                 Span::styled(" Quit", Theme::dim()),
             ]))

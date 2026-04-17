@@ -96,7 +96,7 @@ pub fn get_variants() -> String {
     let variants: Vec<VariantInfo> = GameVariant::ALL
         .iter()
         .map(|v| VariantInfo {
-            id: variant_id(*v),
+            id: v.id(),
             name: v.name(),
             description: v.description(),
             hole_card_count: v.hole_card_count(),
@@ -119,7 +119,7 @@ fn run_calculate(input_json: &str) -> Result<SimOutput, String> {
     let input: SimInput =
         serde_json::from_str(input_json).map_err(|e| format!("Invalid JSON: {}", e))?;
 
-    let variant = parse_variant(&input.variant)?;
+    let variant = GameVariant::from_id(&input.variant)?;
 
     // Build game state
     let mut state = GameState::new(variant);
@@ -187,25 +187,6 @@ fn run_calculate(input_json: &str) -> Result<SimOutput, String> {
         method: result.method.to_string(),
         hand_distribution,
     })
-}
-
-fn parse_variant(s: &str) -> Result<GameVariant, String> {
-    match s {
-        "texas_holdem" => Ok(GameVariant::TexasHoldem),
-        "omaha_holdem" => Ok(GameVariant::OmahaHoldem),
-        "seven_card_stud" => Ok(GameVariant::SevenCardStud),
-        "five_card_draw" => Ok(GameVariant::FiveCardDraw),
-        _ => Err(format!("Unknown variant '{}'. Use one of: texas_holdem, omaha_holdem, seven_card_stud, five_card_draw", s)),
-    }
-}
-
-fn variant_id(v: GameVariant) -> &'static str {
-    match v {
-        GameVariant::TexasHoldem => "texas_holdem",
-        GameVariant::OmahaHoldem => "omaha_holdem",
-        GameVariant::SevenCardStud => "seven_card_stud",
-        GameVariant::FiveCardDraw => "five_card_draw",
-    }
 }
 
 fn error_json(msg: &str) -> String {

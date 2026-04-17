@@ -28,7 +28,7 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -41,19 +41,15 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM module
         run: |
-          wasm-pack build --target web --out-dir web/wasm --release -- --features wasm
+          wasm-pack build --target bundler --out-dir web/wasm --release -- --features wasm
 
       - name: Install npm dependencies
         working-directory: web
         run: npm ci
-
-      - name: Install Tauri CLI
-        working-directory: web
-        run: npm install -D @tauri-apps/cli@2
 
       - name: Build Tauri app
         working-directory: web

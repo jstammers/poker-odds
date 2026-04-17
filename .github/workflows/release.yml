@@ -45,7 +45,7 @@ jobs:
 
       - name: Build WASM module
         run: |
-          wasm-pack build --target bundler --out-dir web/wasm --release -- --features wasm
+          wasm-pack build --target bundler --out-dir web/wasm --release
 
       - name: Install npm dependencies
         working-directory: web

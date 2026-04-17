@@ -187,9 +187,13 @@ impl Card {
         let suit = Suit::ALL[(idx % 4) as usize];
         Card { rank, suit }
     }
+}
+
+impl std::str::FromStr for Card {
+    type Err = CardParseError;
 
     /// Parse strings like "Ah", "Td", "2c", "Ks"
-    pub fn from_str(s: &str) -> Result<Self, CardParseError> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         if s.len() != 2 {
             return Err(CardParseError::InvalidFormat(s.to_string()));
@@ -201,7 +205,9 @@ impl Card {
         let suit = Suit::from_char(suit_char)?;
         Ok(Card { rank, suit })
     }
+}
 
+impl Card {
     pub fn display_short(self) -> String {
         format!("{}{}", self.rank.to_char(), self.suit.to_char())
     }
@@ -219,6 +225,8 @@ impl fmt::Display for Card {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]

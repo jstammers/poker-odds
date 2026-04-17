@@ -276,7 +276,7 @@ mod tests {
         // One pair: 2860 entries
         let op_count = PAIRS_TABLE
             .iter()
-            .filter(|&&(_, v)| v >= 3326 && v <= 6185)
+            .filter(|&&(_, v)| (3326..=6185).contains(&v))
             .count();
         assert_eq!(
             op_count, 2860,

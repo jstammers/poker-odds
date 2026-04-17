@@ -61,8 +61,11 @@ impl InfoSetStore {
     pub fn accumulate_strategy(&mut self, info_set_idx: u32, strategy: &[f32], reach_prob: f32) {
         let offset = self.offsets[info_set_idx as usize] as usize;
         let n = self.num_actions[info_set_idx as usize] as usize;
-        for i in 0..n {
-            self.strategy_sum[offset + i] += reach_prob * strategy[i];
+        for (sum, &s) in self.strategy_sum[offset..offset + n]
+            .iter_mut()
+            .zip(strategy.iter())
+        {
+            *sum += reach_prob * s;
         }
     }
 

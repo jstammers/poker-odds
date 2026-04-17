@@ -1,6 +1,7 @@
 //! wasm-bindgen public API — exposes the poker odds engine to JavaScript.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use serde::{Deserialize, Serialize};

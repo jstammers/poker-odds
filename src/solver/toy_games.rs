@@ -326,6 +326,7 @@ impl LeducBuilder {
     ///
     /// `bet_size`: chips per bet/raise in this round
     /// `round`: 1 = preflop, 2 = postflop
+    #[allow(clippy::too_many_arguments)]
     fn build_betting_node(
         &mut self,
         p0_rank: u8,
@@ -398,6 +399,7 @@ impl LeducBuilder {
     }
 
     /// Build a node for the player facing a bet/raise.
+    #[allow(clippy::too_many_arguments)]
     fn build_facing_bet(
         &mut self,
         p0_rank: u8,

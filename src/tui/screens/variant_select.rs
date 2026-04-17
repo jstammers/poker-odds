@@ -22,6 +22,12 @@ pub struct VariantSelectScreen {
 /// Total items: 4 game variants + 1 GTO Solver separator
 const TOTAL_ITEMS: usize = 5; // 4 variants + GTO Solver
 
+impl Default for VariantSelectScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VariantSelectScreen {
     pub fn new() -> Self {
         let mut s = VariantSelectScreen {

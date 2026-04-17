@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -151,6 +153,12 @@ pub struct SolverConfigScreen {
     edit_buffer: String,
     editing: bool,
     error: Option<String>,
+}
+
+impl Default for SolverConfigScreen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SolverConfigScreen {
@@ -354,17 +362,17 @@ impl SolverConfigScreen {
             }
             Field::Iterations => {
                 if let Ok(val) = self.edit_buffer.parse::<u32>() {
-                    self.iterations = val.max(10).min(1_000_000);
+                    self.iterations = val.clamp(10, 1_000_000);
                 }
             }
             Field::StartingPot => {
                 if let Ok(val) = self.edit_buffer.parse::<f32>() {
-                    self.starting_pot = val.max(1.0).min(100_000.0);
+                    self.starting_pot = val.clamp(1.0, 100_000.0);
                 }
             }
             Field::EffectiveStack => {
                 if let Ok(val) = self.edit_buffer.parse::<f32>() {
-                    self.effective_stack = val.max(1.0).min(100_000.0);
+                    self.effective_stack = val.clamp(1.0, 100_000.0);
                 }
             }
             Field::BetSizes => {

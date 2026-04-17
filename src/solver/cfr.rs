@@ -152,8 +152,8 @@ impl CfrSolver {
                     let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
 
                     // Update regrets
-                    for i in 0..n_actions {
-                        let regret = action_values[i] - node_value;
+                    for (i, &av) in action_values.iter().enumerate() {
+                        let regret = av - node_value;
                         self.store.add_regret(info_set_idx, i, opp_reach * regret);
                     }
 

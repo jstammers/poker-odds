@@ -1,5 +1,6 @@
 //! Central application state and event loop.
 
+use std::str::FromStr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, RwLock,
@@ -39,6 +40,12 @@ pub struct App {
     pub solver_progress: Arc<RwLock<SolverProgress>>,
     pub cancel_flag: CancelFlag,
     pub running: bool,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl App {

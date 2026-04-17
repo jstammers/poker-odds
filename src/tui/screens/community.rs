@@ -102,7 +102,7 @@ impl CommunityScreen {
             board_spans.push(card_span(c));
         }
         // New cards being entered
-        for (_i, slot) in self.input.slots.iter().enumerate() {
+        for slot in self.input.slots.iter() {
             board_spans.push(Span::raw(" "));
             match slot.card() {
                 Some(c) => board_spans.push(card_span(c)),

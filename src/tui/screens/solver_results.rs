@@ -57,6 +57,12 @@ pub struct SolverResultsScreen {
     scroll_offset: usize,
 }
 
+impl Default for SolverResultsScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SolverResultsScreen {
     pub fn new() -> Self {
         SolverResultsScreen { scroll_offset: 0 }

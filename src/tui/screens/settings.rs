@@ -121,8 +121,8 @@ impl SettingsScreen {
     fn apply_edit(&mut self) {
         if let Ok(val) = self.edit_buffer.parse::<u64>() {
             match Field::ALL[self.active_field] {
-                Field::Iterations => self.config.iterations = val.max(1000).min(10_000_000),
-                Field::ExactThreshold => self.config.exact_threshold = val.max(10).min(1_000_000),
+                Field::Iterations => self.config.iterations = val.clamp(1000, 10_000_000),
+                Field::ExactThreshold => self.config.exact_threshold = val.clamp(10, 1_000_000),
                 Field::Threads => self.config.threads = (val as usize).min(64),
             }
         }
@@ -139,8 +139,7 @@ impl SettingsScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
-                std::iter::repeat(Constraint::Length(4))
-                    .take(Field::ALL.len())
+                std::iter::repeat_n(Constraint::Length(4), Field::ALL.len())
                     .chain([Constraint::Fill(1), Constraint::Length(1)])
                     .collect::<Vec<_>>(),
             )

@@ -88,7 +88,7 @@ where
 {
     let iterations = config.iterations;
     let update_every = (iterations / 20).max(1_000);
-    let seed = config.rng_seed.unwrap_or_else(|| rand::random::<u64>());
+    let seed = config.rng_seed.unwrap_or_else(rand::random::<u64>);
 
     let mut acc = SimAccumulator::default();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
@@ -133,9 +133,9 @@ where
         let raw = (iterations / 20).max(n_threads as u64 * 100);
         // Round up to nearest multiple of n_threads
         let m = n_threads as u64;
-        (raw + m - 1) / m * m
+        raw.div_ceil(m) * m
     };
-    let seed = config.rng_seed.unwrap_or_else(|| rand::random::<u64>());
+    let seed = config.rng_seed.unwrap_or_else(rand::random::<u64>);
 
     let mut total_acc = SimAccumulator::default();
     let mut processed = 0u64;
@@ -210,7 +210,7 @@ where
         evaluate_exact_combo(state, &combo_cards, &mut acc);
 
         count += 1;
-        if count % update_every == 0 {
+        if count.is_multiple_of(update_every) {
             progress_cb(acc.to_result(SimMethod::Exact));
         }
     }

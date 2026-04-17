@@ -148,7 +148,10 @@ impl UpiClient {
                 return Ok(exp);
             }
         }
-        bail!("Could not parse exploitability from response: {:?}", response)
+        bail!(
+            "Could not parse exploitability from response: {:?}",
+            response
+        )
     }
 
     /// Shut down the PIOSolver subprocess.
@@ -229,7 +232,10 @@ mod tests {
         let a = vec![0.5f32, 0.3, 0.2];
         let b = vec![0.5f64, 0.3, 0.2];
         let dist = strategy_l1_distance(&a, &b);
-        assert!(dist < 1e-6, "Identical strategies should have L1 distance ~0, got {dist}");
+        assert!(
+            dist < 1e-6,
+            "Identical strategies should have L1 distance ~0, got {dist}"
+        );
     }
 
     #[test]
@@ -237,6 +243,9 @@ mod tests {
         let a = vec![1.0f32, 0.0, 0.0];
         let b = vec![0.0f64, 1.0, 0.0];
         let dist = strategy_l1_distance(&a, &b);
-        assert!((dist - 2.0).abs() < 1e-6, "Maximally different should be 2.0, got {dist}");
+        assert!(
+            (dist - 2.0).abs() < 1e-6,
+            "Maximally different should be 2.0, got {dist}"
+        );
     }
 }

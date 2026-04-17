@@ -67,11 +67,14 @@ impl HandRange {
         let hi = lo + 1 + remaining;
         (Card::from_index(lo as u8), Card::from_index(hi as u8))
     }
+}
 
-    /// Parse a range string like "AA,AKs,QQ-TT,A5s-A2s,KJo".
+impl std::str::FromStr for HandRange {
+    type Err = RangeParseError;
+
+    /// Parse a comma-separated range string.
     ///
-    /// Supported formats:
-    /// - Specific cards: "AhKs" (Ace of hearts, King of spades)
+    /// Supported tokens:
     /// - Pairs: "AA", "QQ"
     /// - Suited: "AKs", "T9s"
     /// - Offsuit: "AKo", "T9o"
@@ -79,7 +82,7 @@ impl HandRange {
     /// - Pair ranges: "QQ-TT" (QQ, JJ, TT)
     /// - Suited ranges: "A5s-A2s" (A5s, A4s, A3s, A2s)
     /// - Offsuit ranges: "KJo-K9o"
-    pub fn from_str(s: &str) -> Result<Self, RangeParseError> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut range = Self::empty();
 
         for token in s.split(',') {
@@ -89,7 +92,6 @@ impl HandRange {
             }
 
             if token.contains('-') {
-                // Range: "QQ-TT" or "A5s-A2s"
                 let parts: Vec<&str> = token.splitn(2, '-').collect();
                 range.parse_range(parts[0], parts[1])?;
             } else {
@@ -99,7 +101,9 @@ impl HandRange {
 
         Ok(range)
     }
+}
 
+impl HandRange {
     fn parse_single(&mut self, token: &str) -> Result<(), RangeParseError> {
         let chars: Vec<char> = token.chars().collect();
 
@@ -172,9 +176,7 @@ impl HandRange {
                         self.add_suited(r1_start, r2);
                         self.add_offsuit(r1_start, r2);
                     }
-                    _ => {
-                        return Err(RangeParseError::InvalidToken(format!("{start}-{end}")))
-                    }
+                    _ => return Err(RangeParseError::InvalidToken(format!("{start}-{end}"))),
                 }
             }
         } else {
@@ -238,6 +240,8 @@ impl HandRange {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -250,7 +254,10 @@ mod tests {
                 let c1 = Card::from_index(i);
                 let c2 = Card::from_index(j);
                 let idx = HandRange::combo_index(c1, c2);
-                assert!(!seen[idx as usize], "Duplicate index {idx} for cards {i},{j}");
+                assert!(
+                    !seen[idx as usize],
+                    "Duplicate index {idx} for cards {i},{j}"
+                );
                 seen[idx as usize] = true;
 
                 // Verify roundtrip

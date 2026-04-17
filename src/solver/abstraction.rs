@@ -106,17 +106,12 @@ impl EquityBuckets {
     /// Compute approximate EHS via Monte Carlo rollouts for flop/turn.
     ///
     /// Randomly completes the board and opponent's hand `n_rollouts` times.
-    pub fn monte_carlo_ehs(
-        hole: [Card; 2],
-        board: &[Card],
-        n_rollouts: u32,
-    ) -> f64 {
+    pub fn monte_carlo_ehs(hole: [Card; 2], board: &[Card], n_rollouts: u32) -> f64 {
         use rand::SeedableRng;
         use rand_xoshiro::Xoshiro256PlusPlus;
 
-        let mut rng = Xoshiro256PlusPlus::seed_from_u64(
-            hole[0].index() as u64 * 52 + hole[1].index() as u64,
-        );
+        let mut rng =
+            Xoshiro256PlusPlus::seed_from_u64(hole[0].index() as u64 * 52 + hole[1].index() as u64);
 
         let board_remaining = 5 - board.len();
         let mut wins = 0u32;
@@ -214,7 +209,10 @@ mod tests {
             Card::new(Rank::Three, Suit::Clubs),
         ];
         let ehs = EquityBuckets::river_ehs(hole, &board);
-        assert!(ehs > 0.85, "AA on low board should have EHS > 0.85, got {ehs:.3}");
+        assert!(
+            ehs > 0.85,
+            "AA on low board should have EHS > 0.85, got {ehs:.3}"
+        );
     }
 
     #[test]
@@ -232,7 +230,10 @@ mod tests {
             Card::new(Rank::Nine, Suit::Clubs),
         ];
         let ehs = EquityBuckets::river_ehs(hole, &board);
-        assert!(ehs < 0.15, "72o on high board should have EHS < 0.15, got {ehs:.3}");
+        assert!(
+            ehs < 0.15,
+            "72o on high board should have EHS < 0.15, got {ehs:.3}"
+        );
     }
 
     #[test]
@@ -248,7 +249,10 @@ mod tests {
             Card::new(Rank::Seven, Suit::Hearts),
         ];
         let ehs = EquityBuckets::monte_carlo_ehs(hole, &board, 1000);
-        assert!(ehs > 0.75, "AA on low flop should have EHS > 0.75, got {ehs:.3}");
+        assert!(
+            ehs > 0.75,
+            "AA on low flop should have EHS > 0.75, got {ehs:.3}"
+        );
     }
 
     #[test]

@@ -1,3 +1,8 @@
+use crate::eval::HandCategory;
+use crate::game::{GameState, GameVariant};
+use crate::sim::result::OddsResult;
+use crate::tui::theme::Theme;
+use crate::tui::widgets::card_span;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -6,11 +11,6 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, Paragraph},
     Frame,
 };
-use crate::eval::HandCategory;
-use crate::game::{GameState, GameVariant};
-use crate::sim::result::OddsResult;
-use crate::tui::theme::Theme;
-use crate::tui::widgets::card_span;
 
 pub enum OddsAction {
     None,
@@ -68,8 +68,11 @@ impl OddsDisplayScreen {
                 Theme::title().add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                format!("  {} opponent{}", state.opponent_count,
-                    if state.opponent_count == 1 { "" } else { "s" }),
+                format!(
+                    "  {} opponent{}",
+                    state.opponent_count,
+                    if state.opponent_count == 1 { "" } else { "s" }
+                ),
                 Theme::dim(),
             )),
         ]);
@@ -90,7 +93,10 @@ impl OddsDisplayScreen {
         let inner = hole_block.inner(chunks[0]);
         frame.render_widget(hole_block, chunks[0]);
 
-        let hole_spans: Vec<Span> = state.hole_cards.iter().enumerate()
+        let hole_spans: Vec<Span> = state
+            .hole_cards
+            .iter()
+            .enumerate()
             .flat_map(|(i, &c)| {
                 let mut v = if i > 0 { vec![Span::raw("  ")] } else { vec![] };
                 v.push(card_span(c));
@@ -114,7 +120,9 @@ impl OddsDisplayScreen {
             let total = self.variant.community_card_count();
             let mut comm_spans: Vec<Span> = Vec::new();
             for (i, &c) in state.community_cards.iter().enumerate() {
-                if i > 0 { comm_spans.push(Span::raw(" ")); }
+                if i > 0 {
+                    comm_spans.push(Span::raw(" "));
+                }
                 comm_spans.push(card_span(c));
             }
             for _ in state.community_cards.len()..total {
@@ -137,17 +145,20 @@ impl OddsDisplayScreen {
         frame.render_widget(block, area);
 
         if !result.is_ready() {
-            let loading = Paragraph::new(Line::from(Span::styled(
-                "  Calculating...", Theme::dim(),
-            )))
-            .alignment(Alignment::Center);
+            let loading =
+                Paragraph::new(Line::from(Span::styled("  Calculating...", Theme::dim())))
+                    .alignment(Alignment::Center);
             frame.render_widget(loading, inner);
             return;
         }
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
             .split(inner);
 
         let win_pct = result.win_pct();
@@ -238,7 +249,10 @@ impl OddsDisplayScreen {
                 Span::styled(format!("{}", result.simulations_run), Theme::highlight()),
             ]))
         } else {
-            Paragraph::new(Line::from(Span::styled("  Running simulation...", Theme::dim())))
+            Paragraph::new(Line::from(Span::styled(
+                "  Running simulation...",
+                Theme::dim(),
+            )))
         };
         frame.render_widget(info, area);
     }

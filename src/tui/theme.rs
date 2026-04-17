@@ -30,7 +30,9 @@ impl Theme {
 
     // Styles
     pub fn title() -> Style {
-        Style::default().fg(Self::ACCENT).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Self::ACCENT)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn normal() -> Style {
@@ -42,11 +44,16 @@ impl Theme {
     }
 
     pub fn highlight() -> Style {
-        Style::default().fg(Self::TEXT_HIGHLIGHT).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Self::TEXT_HIGHLIGHT)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn selected() -> Style {
-        Style::default().fg(Self::BG).bg(Self::ACCENT).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Self::BG)
+            .bg(Self::ACCENT)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn border() -> Style {

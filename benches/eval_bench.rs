@@ -10,7 +10,9 @@ fn bench_eval_five(c: &mut Criterion) {
         Card::new(Rank::Jack, Suit::Spades),
         Card::new(Rank::Ten, Suit::Spades),
     ];
-    c.bench_function("evaluate_five", |b| b.iter(|| evaluate_five(black_box(&cards))));
+    c.bench_function("evaluate_five", |b| {
+        b.iter(|| evaluate_five(black_box(&cards)))
+    });
 }
 
 fn bench_eval_seven(c: &mut Criterion) {
@@ -23,7 +25,9 @@ fn bench_eval_seven(c: &mut Criterion) {
         Card::new(Rank::Nine, Suit::Hearts),
         Card::new(Rank::Two, Suit::Diamonds),
     ];
-    c.bench_function("best_five_of_seven", |b| b.iter(|| best_five_of_seven(black_box(&cards))));
+    c.bench_function("best_five_of_seven", |b| {
+        b.iter(|| best_five_of_seven(black_box(&cards)))
+    });
 }
 
 criterion_group!(benches, bench_eval_five, bench_eval_seven);

@@ -17,7 +17,7 @@ pub struct SimConfig {
 impl Default for SimConfig {
     fn default() -> Self {
         SimConfig {
-            iterations: 500_000,  // ~9ms native (parallel), ~50ms WASM (single-threaded)
+            iterations: 500_000, // ~9ms native (parallel), ~50ms WASM (single-threaded)
             exact_threshold: 50_000,
             threads: 0,
             update_interval_ms: 100,
@@ -29,7 +29,9 @@ impl Default for SimConfig {
 impl SimConfig {
     pub fn effective_threads(&self) -> usize {
         #[cfg(target_arch = "wasm32")]
-        { return 1; }
+        {
+            return 1;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             if self.threads == 0 {

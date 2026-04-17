@@ -114,7 +114,13 @@ impl PostflopTreeBuilder {
         idx
     }
 
-    fn get_or_create_info_set(&mut self, player: u8, card_bucket: u16, history: &[u8], n_actions: u8) -> u32 {
+    fn get_or_create_info_set(
+        &mut self,
+        player: u8,
+        card_bucket: u16,
+        history: &[u8],
+        n_actions: u8,
+    ) -> u32 {
         let key = InfoSetKey {
             player,
             card_bucket,
@@ -134,7 +140,8 @@ impl PostflopTreeBuilder {
     /// Build an action node where `player` must act.
     fn build_action_node(&mut self, player: u8, state: &BuildState) -> NodeIndex {
         let pot = state.pot_contributions[0] + state.pot_contributions[1];
-        let to_call = state.pot_contributions[1 - player as usize] - state.pot_contributions[player as usize];
+        let to_call =
+            state.pot_contributions[1 - player as usize] - state.pot_contributions[player as usize];
         let stack = state.stacks[player as usize];
 
         // Determine available actions
@@ -220,7 +227,8 @@ impl PostflopTreeBuilder {
     ) -> NodeIndex {
         let opponent = 1 - player;
         let pot = state.pot_contributions[0] + state.pot_contributions[1];
-        let to_call = state.pot_contributions[opponent as usize] - state.pot_contributions[player as usize];
+        let to_call =
+            state.pot_contributions[opponent as usize] - state.pot_contributions[player as usize];
 
         let mut new_state = state.clone();
         new_state.action_history.push(action_code);
@@ -447,7 +455,10 @@ mod tests {
     #[test]
     fn river_tree_builds_successfully() {
         let tree = build_river_tree(test_board(), 100.0, 200.0, simple_river_config());
-        assert!(tree.nodes.len() > 5, "River tree should have multiple nodes");
+        assert!(
+            tree.nodes.len() > 5,
+            "River tree should have multiple nodes"
+        );
         assert!(tree.num_info_sets > 0, "Should have info sets");
     }
 
@@ -491,10 +502,14 @@ mod tests {
         // Find a terminal node from a fold
         // After P0 checks, P1 bets, P0 folds: P0 loses their contribution (50)
         // Starting pot = 100, so each contributed 50
-        let has_fold_terminal = tree.nodes.iter().any(|n| {
-            matches!(n, GameTreeNode::Terminal { payoff_p0 } if *payoff_p0 < 0.0)
-        });
-        assert!(has_fold_terminal, "Should have fold terminal nodes with negative payoff for P0");
+        let has_fold_terminal = tree
+            .nodes
+            .iter()
+            .any(|n| matches!(n, GameTreeNode::Terminal { payoff_p0 } if *payoff_p0 < 0.0));
+        assert!(
+            has_fold_terminal,
+            "Should have fold terminal nodes with negative payoff for P0"
+        );
     }
 
     #[test]
@@ -548,6 +563,9 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, GameTreeNode::Terminal { .. }))
             .count();
-        assert_eq!(terminal_count, 5, "Minimal river tree should have 5 terminal nodes");
+        assert_eq!(
+            terminal_count, 5,
+            "Minimal river tree should have 5 terminal nodes"
+        );
     }
 }

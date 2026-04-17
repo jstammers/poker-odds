@@ -7,8 +7,8 @@
 //!
 //! Tables are built once at program startup and cached.
 
-use once_cell::sync::Lazy;
 use crate::cards::card::{Card, Rank};
+use once_cell::sync::Lazy;
 
 /// Straight hand table: (rank_mask, straight_ck_rank, straight_flush_ck_rank)
 /// rank_mask uses bit-per-rank (Two=bit0 … Ace=bit12).
@@ -18,12 +18,12 @@ const STRAIGHTS: [(u16, u16, u16); 10] = [
     (7936, 1600, 1),  // A-K-Q-J-T: Broadway / Royal Flush
     (3968, 1601, 2),  // K-Q-J-T-9
     (1984, 1602, 3),  // Q-J-T-9-8
-    (992,  1603, 4),  // J-T-9-8-7
-    (496,  1604, 5),  // T-9-8-7-6
-    (248,  1605, 6),  // 9-8-7-6-5
-    (124,  1606, 7),  // 8-7-6-5-4
-    (62,   1607, 8),  // 7-6-5-4-3
-    (31,   1608, 9),  // 6-5-4-3-2
+    (992, 1603, 4),   // J-T-9-8-7
+    (496, 1604, 5),   // T-9-8-7-6
+    (248, 1605, 6),   // 9-8-7-6-5
+    (124, 1606, 7),   // 8-7-6-5-4
+    (62, 1607, 8),    // 7-6-5-4-3
+    (31, 1608, 9),    // 6-5-4-3-2
     (4111, 1609, 10), // A-5-4-3-2 (wheel / steel wheel)
 ];
 
@@ -49,7 +49,7 @@ pub fn lookup_pairs(product: u32) -> u16 {
     let table = &*PAIRS_TABLE;
     match table.binary_search_by_key(&product, |&(k, _)| k) {
         Ok(idx) => table[idx].1,
-        Err(_)  => panic!("prime product {product} not found in pairs table — invalid hand"),
+        Err(_) => panic!("prime product {product} not found in pairs table — invalid hand"),
     }
 }
 
@@ -70,7 +70,7 @@ fn build_unique5_table() -> [u16; 8192] {
         }
     }
     // Sort descending by mask value — higher mask = stronger hand (Ace is bit 12)
-    high_card_hands.sort_by(|&a, &b| b.cmp(&a));
+    high_card_hands.sort_by_key(|&b| std::cmp::Reverse(b));
     for (i, mask) in high_card_hands.iter().enumerate() {
         table[*mask as usize] = 6186 + i as u16;
     }
@@ -93,7 +93,7 @@ fn build_flush_table() -> [u16; 8192] {
             flush_hands.push(mask);
         }
     }
-    flush_hands.sort_by(|&a, &b| b.cmp(&a));
+    flush_hands.sort_by_key(|&b| std::cmp::Reverse(b));
     for (i, mask) in flush_hands.iter().enumerate() {
         table[*mask as usize] = 323 + i as u16;
     }
@@ -153,9 +153,11 @@ fn build_pairs_vec() -> Vec<(u32, u16)> {
         }
         let _ = i;
     }
-    toak.sort_by(|a, b| b.0.cmp(&a.0)
-        .then(b.1[0].cmp(&a.1[0]))
-        .then(b.1[1].cmp(&a.1[1])));
+    toak.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then(b.1[0].cmp(&a.1[0]))
+            .then(b.1[1].cmp(&a.1[1]))
+    });
     for (i, (tr, kickers)) in toak.iter().enumerate() {
         let product = tr.prime().pow(3) * kickers[0].prime() * kickers[1].prime();
         map.push((product, 1610 + i as u16));
@@ -175,9 +177,12 @@ fn build_pairs_vec() -> Vec<(u32, u16)> {
             }
         }
     }
-    tp.sort_by(|a, b| b.0[0].cmp(&a.0[0])
-        .then(b.0[1].cmp(&a.0[1]))
-        .then(b.1.cmp(&a.1)));
+    tp.sort_by(|a, b| {
+        b.0[0]
+            .cmp(&a.0[0])
+            .then(b.0[1].cmp(&a.0[1]))
+            .then(b.1.cmp(&a.1))
+    });
     for (i, (pairs, kr)) in tp.iter().enumerate() {
         let product = pairs[0].prime().pow(2) * pairs[1].prime().pow(2) * kr.prime();
         map.push((product, 2468 + i as u16));
@@ -198,12 +203,15 @@ fn build_pairs_vec() -> Vec<(u32, u16)> {
             }
         }
     }
-    op.sort_by(|a, b| b.0.cmp(&a.0)
-        .then(b.1[0].cmp(&a.1[0]))
-        .then(b.1[1].cmp(&a.1[1]))
-        .then(b.1[2].cmp(&a.1[2])));
+    op.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then(b.1[0].cmp(&a.1[0]))
+            .then(b.1[1].cmp(&a.1[1]))
+            .then(b.1[2].cmp(&a.1[2]))
+    });
     for (i, (pr, kickers)) in op.iter().enumerate() {
-        let product = pr.prime().pow(2) * kickers[0].prime() * kickers[1].prime() * kickers[2].prime();
+        let product =
+            pr.prime().pow(2) * kickers[0].prime() * kickers[1].prime() * kickers[2].prime();
         map.push((product, 3326 + i as u16));
     }
 
@@ -236,7 +244,9 @@ fn is_straight(mask: u16) -> bool {
 
 /// Compute the rank bitmask of 5 cards (bit i = rank index i is present).
 pub fn rank_mask_of(cards: &[Card; 5]) -> u16 {
-    cards.iter().fold(0u16, |acc, c| acc | (1 << c.rank.index()))
+    cards
+        .iter()
+        .fold(0u16, |acc, c| acc | (1 << c.rank.index()))
 }
 
 /// Check if all 5 cards share the same suit.
@@ -264,8 +274,14 @@ mod tests {
     #[test]
     fn pairs_table_one_pair_count() {
         // One pair: 2860 entries
-        let op_count = PAIRS_TABLE.iter().filter(|&&(_, v)| v >= 3326 && v <= 6185).count();
-        assert_eq!(op_count, 2860, "expected 2860 one-pair hands, got {op_count}");
+        let op_count = PAIRS_TABLE
+            .iter()
+            .filter(|&&(_, v)| (3326..=6185).contains(&v))
+            .count();
+        assert_eq!(
+            op_count, 2860,
+            "expected 2860 one-pair hands, got {op_count}"
+        );
     }
 
     #[test]
@@ -278,7 +294,11 @@ mod tests {
     fn pairs_table_is_sorted() {
         let table = &*PAIRS_TABLE;
         for w in table.windows(2) {
-            assert!(w[0].0 < w[1].0, "PAIRS_TABLE not sorted at product {}", w[0].0);
+            assert!(
+                w[0].0 < w[1].0,
+                "PAIRS_TABLE not sorted at product {}",
+                w[0].0
+            );
         }
     }
 }

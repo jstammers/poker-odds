@@ -110,13 +110,7 @@ fn bench_exploitability(c: &mut Criterion) {
         let mut solver = CfrSolver::new(tree, config);
         solver.solve();
 
-        b.iter(|| {
-            black_box(compute_exploitability(
-                &solver.tree,
-                &solver.store,
-                1.0,
-            ))
-        });
+        b.iter(|| black_box(compute_exploitability(&solver.tree, &solver.store, 1.0)));
     });
 }
 

@@ -1,7 +1,7 @@
 //! Interactive card input widget.
 
-use crossterm::event::{KeyCode, KeyEvent};
 use crate::cards::{Card, Rank, Suit};
+use crossterm::event::{KeyCode, KeyEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputState {
@@ -22,7 +22,10 @@ pub struct CardInput {
 
 impl CardInput {
     pub fn new() -> Self {
-        CardInput { state: InputState::AwaitingRank, error: None }
+        CardInput {
+            state: InputState::AwaitingRank,
+            error: None,
+        }
     }
 
     pub fn clear(&mut self) {
@@ -53,7 +56,8 @@ impl CardInput {
                             self.state = InputState::AwaitingSuit(rank);
                         }
                         Err(_) => {
-                            self.error = Some(format!("Unknown rank '{}'. Use 2-9, T, J, Q, K, A", c));
+                            self.error =
+                                Some(format!("Unknown rank '{}'. Use 2-9, T, J, Q, K, A", c));
                         }
                     }
                 }
@@ -64,23 +68,21 @@ impl CardInput {
                     KeyCode::Backspace => {
                         self.state = InputState::AwaitingRank;
                     }
-                    KeyCode::Char(c) => {
-                        match Suit::from_char(c) {
-                            Ok(suit) => {
-                                let card = Card::new(rank, suit);
-                                if already_used.contains(&card) {
-                                    self.error = Some(format!("{} is already in use", card));
-                                    self.state = InputState::AwaitingRank;
-                                } else {
-                                    self.state = InputState::Confirmed(card);
-                                    return Some(card);
-                                }
-                            }
-                            Err(_) => {
-                                self.error = Some(format!("Unknown suit '{}'. Use c, d, h, s", c));
+                    KeyCode::Char(c) => match Suit::from_char(c) {
+                        Ok(suit) => {
+                            let card = Card::new(rank, suit);
+                            if already_used.contains(&card) {
+                                self.error = Some(format!("{} is already in use", card));
+                                self.state = InputState::AwaitingRank;
+                            } else {
+                                self.state = InputState::Confirmed(card);
+                                return Some(card);
                             }
                         }
-                    }
+                        Err(_) => {
+                            self.error = Some(format!("Unknown suit '{}'. Use c, d, h, s", c));
+                        }
+                    },
                     _ => {}
                 }
             }
@@ -127,7 +129,9 @@ impl MultiCardInput {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, already_used: &[Card]) {
-        if self.active_slot >= self.slots.len() { return; }
+        if self.active_slot >= self.slots.len() {
+            return;
+        }
 
         let slot = &mut self.slots[self.active_slot];
         let completed = slot.handle_key(key, already_used);

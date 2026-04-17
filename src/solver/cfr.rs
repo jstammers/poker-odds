@@ -115,8 +115,7 @@ impl CfrSolver {
                 children
                     .iter()
                     .map(|(_, child)| {
-                        weight
-                            * self.cfr_traverse(*child, reach_p0, reach_p1, traversing_player)
+                        weight * self.cfr_traverse(*child, reach_p0, reach_p1, traversing_player)
                     })
                     .sum()
             }
@@ -153,8 +152,8 @@ impl CfrSolver {
                     let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
 
                     // Update regrets
-                    for i in 0..n_actions {
-                        let regret = action_values[i] - node_value;
+                    for (i, &av) in action_values.iter().enumerate() {
+                        let regret = av - node_value;
                         self.store.add_regret(info_set_idx, i, opp_reach * regret);
                     }
 
@@ -185,8 +184,7 @@ impl CfrSolver {
         let strat_discount = (t / (t + 1.0)).powf(gamma) as f32;
 
         for idx in 0..self.tree.num_info_sets {
-            self.store
-                .discount_regrets(idx, pos_discount, neg_discount);
+            self.store.discount_regrets(idx, pos_discount, neg_discount);
             self.store.discount_strategy_sum(idx, strat_discount);
         }
     }

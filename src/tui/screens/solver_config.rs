@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -153,6 +155,12 @@ pub struct SolverConfigScreen {
     error: Option<String>,
 }
 
+impl Default for SolverConfigScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SolverConfigScreen {
     pub fn new() -> Self {
         SolverConfigScreen {
@@ -215,15 +223,11 @@ impl SolverConfigScreen {
 
         match key.code {
             KeyCode::Esc => return SolverConfigAction::Back,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.active_field > 0 {
-                    self.active_field -= 1;
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.active_field > 0 => {
+                self.active_field -= 1;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.active_field < Field::ALL.len() - 1 {
-                    self.active_field += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.active_field < Field::ALL.len() - 1 => {
+                self.active_field += 1;
             }
             KeyCode::Tab => {
                 self.active_field = (self.active_field + 1) % Field::ALL.len();
@@ -354,17 +358,17 @@ impl SolverConfigScreen {
             }
             Field::Iterations => {
                 if let Ok(val) = self.edit_buffer.parse::<u32>() {
-                    self.iterations = val.max(10).min(1_000_000);
+                    self.iterations = val.clamp(10, 1_000_000);
                 }
             }
             Field::StartingPot => {
                 if let Ok(val) = self.edit_buffer.parse::<f32>() {
-                    self.starting_pot = val.max(1.0).min(100_000.0);
+                    self.starting_pot = val.clamp(1.0, 100_000.0);
                 }
             }
             Field::EffectiveStack => {
                 if let Ok(val) = self.edit_buffer.parse::<f32>() {
-                    self.effective_stack = val.max(1.0).min(100_000.0);
+                    self.effective_stack = val.clamp(1.0, 100_000.0);
                 }
             }
             Field::BetSizes => {
@@ -451,7 +455,7 @@ impl SolverConfigScreen {
                 Constraint::Length(2), // Raise sizes
                 Constraint::Length(2), // Max raises
                 Constraint::Length(2), // Error
-                Constraint::Fill(1),  // spacer
+                Constraint::Fill(1),   // spacer
                 Constraint::Length(1), // Help
             ])
             .split(inner);
@@ -471,10 +475,8 @@ impl SolverConfigScreen {
 
         // Error (chunk index = Field::ALL.len() = 11)
         if let Some(ref err) = self.error {
-            let err_para = Paragraph::new(Line::from(Span::styled(
-                format!("  {err}"),
-                Theme::lose(),
-            )));
+            let err_para =
+                Paragraph::new(Line::from(Span::styled(format!("  {err}"), Theme::lose())));
             frame.render_widget(err_para, chunks[11]);
         }
 
@@ -500,7 +502,11 @@ impl SolverConfigScreen {
             .border_style(border_style)
             .title(Span::styled(
                 title_text,
-                if is_active { Theme::title() } else { Theme::dim() },
+                if is_active {
+                    Theme::title()
+                } else {
+                    Theme::dim()
+                },
             ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -551,13 +557,7 @@ impl SolverConfigScreen {
         );
     }
 
-    fn render_range_field(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        field: Field,
-        field_idx: usize,
-    ) {
+    fn render_range_field(&self, frame: &mut Frame, area: Rect, field: Field, field_idx: usize) {
         let is_active = self.active_field == field_idx;
         let is_editing = is_active && self.editing;
 
@@ -605,10 +605,7 @@ impl SolverConfigScreen {
                 Span::styled(": ", Theme::dim()),
                 Span::styled(display_value, value_style),
             ]),
-            Line::from(Span::styled(
-                format!("   {}", field.hint()),
-                Theme::dim(),
-            )),
+            Line::from(Span::styled(format!("   {}", field.hint()), Theme::dim())),
         ];
         frame.render_widget(Paragraph::new(lines), area);
     }
@@ -621,10 +618,7 @@ impl SolverConfigScreen {
             format!("{}_", self.edit_buffer)
         } else {
             match field {
-                Field::Street => format!(
-                    "{}  (Enter to toggle)",
-                    self.street.name()
-                ),
+                Field::Street => format!("{}  (Enter to toggle)", self.street.name()),
                 Field::Algorithm => match self.algorithm {
                     CfrAlgorithm::CfrPlus => "CFR+".to_string(),
                     CfrAlgorithm::Dcfr => "DCFR (Discounted)".to_string(),

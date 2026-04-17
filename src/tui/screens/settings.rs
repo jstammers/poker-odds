@@ -1,3 +1,5 @@
+use crate::sim::SimConfig;
+use crate::tui::theme::Theme;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -6,8 +8,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::sim::SimConfig;
-use crate::tui::theme::Theme;
 
 pub enum SettingsAction {
     None,
@@ -66,11 +66,11 @@ impl SettingsScreen {
 
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => return SettingsAction::Close,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.active_field > 0 { self.active_field -= 1; }
+            KeyCode::Up | KeyCode::Char('k') if self.active_field > 0 => {
+                self.active_field -= 1;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.active_field < Field::ALL.len() - 1 { self.active_field += 1; }
+            KeyCode::Down | KeyCode::Char('j') if self.active_field < Field::ALL.len() - 1 => {
+                self.active_field += 1;
             }
             KeyCode::Enter | KeyCode::Char('e') => {
                 self.start_edit();
@@ -117,8 +117,8 @@ impl SettingsScreen {
     fn apply_edit(&mut self) {
         if let Ok(val) = self.edit_buffer.parse::<u64>() {
             match Field::ALL[self.active_field] {
-                Field::Iterations => self.config.iterations = val.max(1000).min(10_000_000),
-                Field::ExactThreshold => self.config.exact_threshold = val.max(10).min(1_000_000),
+                Field::Iterations => self.config.iterations = val.clamp(1000, 10_000_000),
+                Field::ExactThreshold => self.config.exact_threshold = val.clamp(10, 1_000_000),
                 Field::Threads => self.config.threads = (val as usize).min(64),
             }
         }
@@ -135,8 +135,7 @@ impl SettingsScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
-                std::iter::repeat(Constraint::Length(4))
-                    .take(Field::ALL.len())
+                std::iter::repeat_n(Constraint::Length(4), Field::ALL.len())
                     .chain([Constraint::Fill(1), Constraint::Length(1)])
                     .collect::<Vec<_>>(),
             )
@@ -155,7 +154,12 @@ impl SettingsScreen {
                     Field::Threads => {
                         let t = self.config.threads;
                         if t == 0 {
-                            format!("auto ({})", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4))
+                            format!(
+                                "auto ({})",
+                                std::thread::available_parallelism()
+                                    .map(|n| n.get())
+                                    .unwrap_or(4)
+                            )
                         } else {
                             t.to_string()
                         }
@@ -163,7 +167,11 @@ impl SettingsScreen {
                 }
             };
 
-            let label_style = if is_active { Theme::highlight() } else { Theme::normal() };
+            let label_style = if is_active {
+                Theme::highlight()
+            } else {
+                Theme::normal()
+            };
             let value_style = if is_editing {
                 Theme::accent()
             } else if is_active {
@@ -171,7 +179,11 @@ impl SettingsScreen {
             } else {
                 Theme::dim()
             };
-            let border_style = if is_active { Theme::border_focused() } else { Theme::border() };
+            let border_style = if is_active {
+                Theme::border_focused()
+            } else {
+                Theme::border()
+            };
             let prefix = if is_active { "▶ " } else { "  " };
 
             let field_block = Block::default()

@@ -66,15 +66,11 @@ impl SettingsScreen {
 
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => return SettingsAction::Close,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.active_field > 0 {
-                    self.active_field -= 1;
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.active_field > 0 => {
+                self.active_field -= 1;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.active_field < Field::ALL.len() - 1 {
-                    self.active_field += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.active_field < Field::ALL.len() - 1 => {
+                self.active_field += 1;
             }
             KeyCode::Enter | KeyCode::Char('e') => {
                 self.start_edit();

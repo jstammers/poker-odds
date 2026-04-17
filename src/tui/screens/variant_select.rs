@@ -40,17 +40,13 @@ impl VariantSelectScreen {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<VariantSelectResult> {
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                    self.list_state.select(Some(self.selected));
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.selected > 0 => {
+                self.selected -= 1;
+                self.list_state.select(Some(self.selected));
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected < TOTAL_ITEMS - 1 {
-                    self.selected += 1;
-                    self.list_state.select(Some(self.selected));
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.selected < TOTAL_ITEMS - 1 => {
+                self.selected += 1;
+                self.list_state.select(Some(self.selected));
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.selected < GameVariant::ALL.len() {

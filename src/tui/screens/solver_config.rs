@@ -223,15 +223,11 @@ impl SolverConfigScreen {
 
         match key.code {
             KeyCode::Esc => return SolverConfigAction::Back,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.active_field > 0 {
-                    self.active_field -= 1;
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.active_field > 0 => {
+                self.active_field -= 1;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.active_field < Field::ALL.len() - 1 {
-                    self.active_field += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.active_field < Field::ALL.len() - 1 => {
+                self.active_field += 1;
             }
             KeyCode::Tab => {
                 self.active_field = (self.active_field + 1) % Field::ALL.len();

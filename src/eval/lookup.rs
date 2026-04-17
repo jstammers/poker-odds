@@ -70,7 +70,7 @@ fn build_unique5_table() -> [u16; 8192] {
         }
     }
     // Sort descending by mask value — higher mask = stronger hand (Ace is bit 12)
-    high_card_hands.sort_by(|&a, &b| b.cmp(&a));
+    high_card_hands.sort_by_key(|&b| std::cmp::Reverse(b));
     for (i, mask) in high_card_hands.iter().enumerate() {
         table[*mask as usize] = 6186 + i as u16;
     }
@@ -93,7 +93,7 @@ fn build_flush_table() -> [u16; 8192] {
             flush_hands.push(mask);
         }
     }
-    flush_hands.sort_by(|&a, &b| b.cmp(&a));
+    flush_hands.sort_by_key(|&b| std::cmp::Reverse(b));
     for (i, mask) in flush_hands.iter().enumerate() {
         table[*mask as usize] = 323 + i as u16;
     }

@@ -1,6 +1,6 @@
-use std::time::Duration;
-use crossterm::event::{self, Event as CEvent, KeyCode, KeyEvent, KeyModifiers};
 use anyhow::Result;
+use crossterm::event::{self, Event as CEvent, KeyCode, KeyEvent, KeyModifiers};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {

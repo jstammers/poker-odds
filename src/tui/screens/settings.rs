@@ -1,3 +1,5 @@
+use crate::sim::SimConfig;
+use crate::tui::theme::Theme;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -6,8 +8,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::sim::SimConfig;
-use crate::tui::theme::Theme;
 
 pub enum SettingsAction {
     None,
@@ -67,10 +67,14 @@ impl SettingsScreen {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => return SettingsAction::Close,
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.active_field > 0 { self.active_field -= 1; }
+                if self.active_field > 0 {
+                    self.active_field -= 1;
+                }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.active_field < Field::ALL.len() - 1 { self.active_field += 1; }
+                if self.active_field < Field::ALL.len() - 1 {
+                    self.active_field += 1;
+                }
             }
             KeyCode::Enter | KeyCode::Char('e') => {
                 self.start_edit();
@@ -155,7 +159,12 @@ impl SettingsScreen {
                     Field::Threads => {
                         let t = self.config.threads;
                         if t == 0 {
-                            format!("auto ({})", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4))
+                            format!(
+                                "auto ({})",
+                                std::thread::available_parallelism()
+                                    .map(|n| n.get())
+                                    .unwrap_or(4)
+                            )
                         } else {
                             t.to_string()
                         }
@@ -163,7 +172,11 @@ impl SettingsScreen {
                 }
             };
 
-            let label_style = if is_active { Theme::highlight() } else { Theme::normal() };
+            let label_style = if is_active {
+                Theme::highlight()
+            } else {
+                Theme::normal()
+            };
             let value_style = if is_editing {
                 Theme::accent()
             } else if is_active {
@@ -171,7 +184,11 @@ impl SettingsScreen {
             } else {
                 Theme::dim()
             };
-            let border_style = if is_active { Theme::border_focused() } else { Theme::border() };
+            let border_style = if is_active {
+                Theme::border_focused()
+            } else {
+                Theme::border()
+            };
             let prefix = if is_active { "▶ " } else { "  " };
 
             let field_block = Block::default()

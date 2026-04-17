@@ -12,9 +12,15 @@ pub struct OddsResult {
 }
 
 impl OddsResult {
-    pub fn win_pct(&self) -> f64 { self.win * 100.0 }
-    pub fn tie_pct(&self) -> f64 { self.tie * 100.0 }
-    pub fn lose_pct(&self) -> f64 { self.lose * 100.0 }
+    pub fn win_pct(&self) -> f64 {
+        self.win * 100.0
+    }
+    pub fn tie_pct(&self) -> f64 {
+        self.tie * 100.0
+    }
+    pub fn lose_pct(&self) -> f64 {
+        self.lose * 100.0
+    }
 
     pub fn hand_pct(&self, cat: HandCategory) -> f64 {
         self.hand_distribution[cat as usize] * 100.0

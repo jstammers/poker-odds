@@ -1,3 +1,8 @@
+use crate::cards::Card;
+use crate::game::{BettingRound, GameState, GameVariant};
+use crate::tui::theme::Theme;
+use crate::tui::widgets::card_input::InputState;
+use crate::tui::widgets::{card_span, empty_card_span, MultiCardInput};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -6,11 +11,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::cards::Card;
-use crate::game::{BettingRound, GameState, GameVariant};
-use crate::tui::theme::Theme;
-use crate::tui::widgets::{card_span, empty_card_span, MultiCardInput};
-use crate::tui::widgets::card_input::InputState;
 
 pub struct CommunityScreen {
     pub round: BettingRound,
@@ -75,9 +75,11 @@ impl CommunityScreen {
                 Theme::title().add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                format!("  Enter {} community card{}",
+                format!(
+                    "  Enter {} community card{}",
                     self.input.slots.len(),
-                    if self.input.slots.len() == 1 { "" } else { "s" }),
+                    if self.input.slots.len() == 1 { "" } else { "s" }
+                ),
                 Theme::dim(),
             )),
         ]);
@@ -94,7 +96,9 @@ impl CommunityScreen {
         let total_community = self.variant.community_card_count();
         let mut board_spans: Vec<Span> = vec![Span::raw("  ")];
         for (i, &c) in self.existing_community.iter().enumerate() {
-            if i > 0 { board_spans.push(Span::raw(" ")); }
+            if i > 0 {
+                board_spans.push(Span::raw(" "));
+            }
             board_spans.push(card_span(c));
         }
         // New cards being entered
@@ -131,7 +135,9 @@ impl CommunityScreen {
         let hole_inner = hole_block.inner(chunks[2]);
         frame.render_widget(hole_block, chunks[2]);
 
-        let hole_spans: Vec<Span> = self.all_known.iter()
+        let hole_spans: Vec<Span> = self
+            .all_known
+            .iter()
             .take(self.variant.hole_card_count())
             .enumerate()
             .flat_map(|(i, &c)| {
@@ -145,15 +151,22 @@ impl CommunityScreen {
 
         // Prompt
         let prompt = if self.input.slots.is_empty() {
-            Paragraph::new(Line::from(Span::styled("  Press Enter to continue", Theme::dim())))
+            Paragraph::new(Line::from(Span::styled(
+                "  Press Enter to continue",
+                Theme::dim(),
+            )))
         } else if self.input.all_complete() {
-            Paragraph::new(Line::from(Span::styled("  All cards entered. Press Enter to calculate odds.", Theme::dim())))
+            Paragraph::new(Line::from(Span::styled(
+                "  All cards entered. Press Enter to calculate odds.",
+                Theme::dim(),
+            )))
         } else {
             let active = &self.input.slots[self.input.active_slot];
             let hint = match &active.state {
                 InputState::AwaitingRank => "  Enter rank: 2-9, T, J, Q, K, A".to_string(),
-                InputState::AwaitingSuit(r) =>
-                    format!("  Got {}. Enter suit: c, d, h, s", r.to_char()),
+                InputState::AwaitingSuit(r) => {
+                    format!("  Got {}. Enter suit: c, d, h, s", r.to_char())
+                }
                 InputState::Confirmed(_) => "  Backspace to change, Tab for next".to_string(),
             };
             Paragraph::new(Line::from(Span::styled(hint, Theme::highlight())))
@@ -163,7 +176,10 @@ impl CommunityScreen {
         // Error
         if let Some(err) = self.input.error() {
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(format!("  ⚠ {}", err), Theme::lose()))),
+                Paragraph::new(Line::from(Span::styled(
+                    format!("  ⚠ {}", err),
+                    Theme::lose(),
+                ))),
                 chunks[4],
             );
         }

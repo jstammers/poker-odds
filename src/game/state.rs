@@ -43,7 +43,9 @@ impl GameState {
 
     /// How many more community cards need to be revealed to reach showdown
     pub fn community_cards_remaining(&self) -> usize {
-        self.variant.community_card_count().saturating_sub(self.community_cards.len())
+        self.variant
+            .community_card_count()
+            .saturating_sub(self.community_cards.len())
     }
 
     /// How many hole cards per opponent are unknown (for simulation)
@@ -82,15 +84,9 @@ impl GameState {
     /// Whether the hand has reached showdown (all cards revealed)
     pub fn is_complete(&self) -> bool {
         match self.variant {
-            GameVariant::TexasHoldem | GameVariant::OmahaHoldem => {
-                self.community_cards.len() == 5
-            }
-            GameVariant::SevenCardStud => {
-                self.hole_cards.len() == 7
-            }
-            GameVariant::FiveCardDraw => {
-                self.hole_cards.len() == 5
-            }
+            GameVariant::TexasHoldem | GameVariant::OmahaHoldem => self.community_cards.len() == 5,
+            GameVariant::SevenCardStud => self.hole_cards.len() == 7,
+            GameVariant::FiveCardDraw => self.hole_cards.len() == 5,
         }
     }
 

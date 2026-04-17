@@ -56,7 +56,11 @@ fn bench_holdem_river(c: &mut Criterion) {
     ];
     state.opponent_count = 1;
 
-    let cfg = SimConfig { iterations: 100_000, rng_seed: Some(42), ..SimConfig::default() };
+    let cfg = SimConfig {
+        iterations: 100_000,
+        rng_seed: Some(42),
+        ..SimConfig::default()
+    };
     c.bench_function("holdem_river_100k", |b| {
         b.iter(|| run_simulation(black_box(&state), black_box(&cfg), cancel(), |_| {}))
     });
@@ -72,7 +76,11 @@ fn bench_holdem_multi_opponent(c: &mut Criterion) {
             card(Rank::King, Suit::Spades),
         ];
         state.opponent_count = opps;
-        let cfg = SimConfig { iterations: 50_000, rng_seed: Some(42), ..SimConfig::default() };
+        let cfg = SimConfig {
+            iterations: 50_000,
+            rng_seed: Some(42),
+            ..SimConfig::default()
+        };
         group.bench_with_input(BenchmarkId::from_parameter(opps), &cfg, |b, cfg| {
             b.iter(|| run_simulation(black_box(&state), black_box(cfg), cancel(), |_| {}))
         });
@@ -90,7 +98,11 @@ fn bench_omaha_preflop(c: &mut Criterion) {
         card(Rank::Jack, Suit::Hearts),
     ];
     state.opponent_count = 1;
-    let cfg = SimConfig { iterations: 50_000, rng_seed: Some(42), ..SimConfig::default() };
+    let cfg = SimConfig {
+        iterations: 50_000,
+        rng_seed: Some(42),
+        ..SimConfig::default()
+    };
     c.bench_function("omaha_preflop_50k", |b| {
         b.iter(|| run_simulation(black_box(&state), black_box(&cfg), cancel(), |_| {}))
     });

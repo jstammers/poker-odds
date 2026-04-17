@@ -1,5 +1,5 @@
-use rand::Rng;
 use crate::cards::card::{Card, Rank, Suit};
+use rand::Rng;
 
 /// A 52-card deck tracked via a bitmask for O(1) operations.
 pub struct Deck {
@@ -10,7 +10,9 @@ pub struct Deck {
 impl Deck {
     pub fn new() -> Self {
         // All 52 cards available: low 52 bits set
-        Deck { available: (1u64 << 52) - 1 }
+        Deck {
+            available: (1u64 << 52) - 1,
+        }
     }
 
     pub fn full() -> Self {
@@ -40,8 +42,9 @@ impl Deck {
 
     /// Iterate over remaining cards in suit/rank order.
     pub fn remaining_cards(&self) -> impl Iterator<Item = Card> + '_ {
-        (0u8..52).filter(move |&i| (self.available >> i) & 1 == 1)
-                 .map(Card::from_index)
+        (0u8..52)
+            .filter(move |&i| (self.available >> i) & 1 == 1)
+            .map(Card::from_index)
     }
 
     /// Deal a random card from the remaining deck.
@@ -64,7 +67,9 @@ impl Deck {
 
     /// Clone the deck state (for simulation branches).
     pub fn snapshot(&self) -> Self {
-        Deck { available: self.available }
+        Deck {
+            available: self.available,
+        }
     }
 }
 
@@ -114,7 +119,10 @@ mod tests {
     #[test]
     fn remove_reduces_count() {
         let mut d = Deck::new();
-        d.remove(Card::new(crate::cards::card::Rank::Ace, crate::cards::card::Suit::Spades));
+        d.remove(Card::new(
+            crate::cards::card::Rank::Ace,
+            crate::cards::card::Suit::Spades,
+        ));
         assert_eq!(d.remaining_count(), 51);
     }
 

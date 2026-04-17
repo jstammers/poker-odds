@@ -451,7 +451,7 @@ impl SolverConfigScreen {
                 Constraint::Length(2), // Raise sizes
                 Constraint::Length(2), // Max raises
                 Constraint::Length(2), // Error
-                Constraint::Fill(1),  // spacer
+                Constraint::Fill(1),   // spacer
                 Constraint::Length(1), // Help
             ])
             .split(inner);
@@ -471,10 +471,8 @@ impl SolverConfigScreen {
 
         // Error (chunk index = Field::ALL.len() = 11)
         if let Some(ref err) = self.error {
-            let err_para = Paragraph::new(Line::from(Span::styled(
-                format!("  {err}"),
-                Theme::lose(),
-            )));
+            let err_para =
+                Paragraph::new(Line::from(Span::styled(format!("  {err}"), Theme::lose())));
             frame.render_widget(err_para, chunks[11]);
         }
 
@@ -500,7 +498,11 @@ impl SolverConfigScreen {
             .border_style(border_style)
             .title(Span::styled(
                 title_text,
-                if is_active { Theme::title() } else { Theme::dim() },
+                if is_active {
+                    Theme::title()
+                } else {
+                    Theme::dim()
+                },
             ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -551,13 +553,7 @@ impl SolverConfigScreen {
         );
     }
 
-    fn render_range_field(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        field: Field,
-        field_idx: usize,
-    ) {
+    fn render_range_field(&self, frame: &mut Frame, area: Rect, field: Field, field_idx: usize) {
         let is_active = self.active_field == field_idx;
         let is_editing = is_active && self.editing;
 
@@ -605,10 +601,7 @@ impl SolverConfigScreen {
                 Span::styled(": ", Theme::dim()),
                 Span::styled(display_value, value_style),
             ]),
-            Line::from(Span::styled(
-                format!("   {}", field.hint()),
-                Theme::dim(),
-            )),
+            Line::from(Span::styled(format!("   {}", field.hint()), Theme::dim())),
         ];
         frame.render_widget(Paragraph::new(lines), area);
     }
@@ -621,10 +614,7 @@ impl SolverConfigScreen {
             format!("{}_", self.edit_buffer)
         } else {
             match field {
-                Field::Street => format!(
-                    "{}  (Enter to toggle)",
-                    self.street.name()
-                ),
+                Field::Street => format!("{}  (Enter to toggle)", self.street.name()),
                 Field::Algorithm => match self.algorithm {
                     CfrAlgorithm::CfrPlus => "CFR+".to_string(),
                     CfrAlgorithm::Dcfr => "DCFR (Discounted)".to_string(),

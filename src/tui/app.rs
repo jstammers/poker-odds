@@ -13,12 +13,12 @@ use ratatui::Frame;
 use crate::game::GameState;
 use crate::sim::{run_simulation, CancelFlag, OddsResult, SimConfig};
 use crate::tui::events::{is_quit, poll_event, AppEvent};
+use crate::tui::screens::variant_select::VariantSelectResult;
 use crate::tui::screens::{
     CommunityAction, CommunityScreen, HoleCardsScreen, OddsAction, OddsDisplayScreen,
     SettingsAction, SettingsScreen, SolverConfigAction, SolverConfigScreen, SolverParams,
     SolverProgress, SolverResultsAction, SolverResultsScreen, VariantSelectScreen,
 };
-use crate::tui::screens::variant_select::VariantSelectResult;
 use crate::tui::theme::Theme;
 
 pub enum Screen {
@@ -54,7 +54,10 @@ impl App {
         }
     }
 
-    pub fn run(&mut self, terminal: &mut ratatui::Terminal<impl ratatui::backend::Backend>) -> anyhow::Result<()> {
+    pub fn run(
+        &mut self,
+        terminal: &mut ratatui::Terminal<impl ratatui::backend::Backend>,
+    ) -> anyhow::Result<()> {
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
 
@@ -86,17 +89,15 @@ impl App {
     fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
         let screen = self.screen.take();
         self.screen = match screen {
-            Some(Screen::VariantSelect(mut s)) => {
-                match s.handle_key(key) {
-                    Some(VariantSelectResult::Variant(variant)) => {
-                        Some(Screen::HoleCards(HoleCardsScreen::new(variant)))
-                    }
-                    Some(VariantSelectResult::GtoSolver) => {
-                        Some(Screen::SolverConfig(SolverConfigScreen::new()))
-                    }
-                    None => Some(Screen::VariantSelect(s)),
+            Some(Screen::VariantSelect(mut s)) => match s.handle_key(key) {
+                Some(VariantSelectResult::Variant(variant)) => {
+                    Some(Screen::HoleCards(HoleCardsScreen::new(variant)))
                 }
-            }
+                Some(VariantSelectResult::GtoSolver) => {
+                    Some(Screen::SolverConfig(SolverConfigScreen::new()))
+                }
+                None => Some(Screen::VariantSelect(s)),
+            },
             Some(Screen::HoleCards(mut s)) => {
                 if key.code == KeyCode::Esc {
                     Some(Screen::VariantSelect(VariantSelectScreen::new()))
@@ -205,29 +206,23 @@ impl App {
                     }
                 }
             }
-            Some(Screen::SolverConfig(mut s)) => {
-                match s.handle_key(key) {
-                    SolverConfigAction::None => Some(Screen::SolverConfig(s)),
-                    SolverConfigAction::Back => {
-                        Some(Screen::VariantSelect(VariantSelectScreen::new()))
-                    }
-                    SolverConfigAction::Run(params) => {
-                        self.start_solver(&params);
-                        Some(Screen::SolverResults(SolverResultsScreen::new()))
-                    }
+            Some(Screen::SolverConfig(mut s)) => match s.handle_key(key) {
+                SolverConfigAction::None => Some(Screen::SolverConfig(s)),
+                SolverConfigAction::Back => Some(Screen::VariantSelect(VariantSelectScreen::new())),
+                SolverConfigAction::Run(params) => {
+                    self.start_solver(&params);
+                    Some(Screen::SolverResults(SolverResultsScreen::new()))
                 }
-            }
-            Some(Screen::SolverResults(mut s)) => {
-                match s.handle_key(key) {
-                    SolverResultsAction::None => Some(Screen::SolverResults(s)),
-                    SolverResultsAction::Back => {
-                        Some(Screen::VariantSelect(VariantSelectScreen::new()))
-                    }
-                    SolverResultsAction::Reconfigure => {
-                        Some(Screen::SolverConfig(SolverConfigScreen::new()))
-                    }
+            },
+            Some(Screen::SolverResults(mut s)) => match s.handle_key(key) {
+                SolverResultsAction::None => Some(Screen::SolverResults(s)),
+                SolverResultsAction::Back => {
+                    Some(Screen::VariantSelect(VariantSelectScreen::new()))
                 }
-            }
+                SolverResultsAction::Reconfigure => {
+                    Some(Screen::SolverConfig(SolverConfigScreen::new()))
+                }
+            },
             None => None,
         };
     }
@@ -267,8 +262,8 @@ impl App {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn start_solver(&self, params: &SolverParams) {
-        use crate::solver::action::BetSizingConfig;
         use crate::solver::abstraction::NoAbstraction;
+        use crate::solver::action::BetSizingConfig;
         use crate::solver::cfr::{CfrSolver, SolverConfig as CfrSolverConfig};
         use crate::solver::exploitability::compute_exploitability;
         use crate::solver::postflop::{PostflopConfig, PostflopTreeBuilder};
@@ -421,7 +416,12 @@ impl App {
             .style(ratatui::style::Style::default().bg(Theme::BG));
         frame.render_widget(bg, area);
 
-        let result = self.odds_result.read().ok().map(|r| r.clone()).unwrap_or_default();
+        let result = self
+            .odds_result
+            .read()
+            .ok()
+            .map(|r| r.clone())
+            .unwrap_or_default();
 
         match &mut self.screen {
             Some(Screen::VariantSelect(s)) => s.render(frame, area),
@@ -435,7 +435,12 @@ impl App {
             Some(Screen::Settings(s, _)) => s.render(frame, area),
             Some(Screen::SolverConfig(s)) => s.render(frame, area),
             Some(Screen::SolverResults(s)) => {
-                let progress = self.solver_progress.read().ok().map(|p| p.clone()).unwrap_or_default();
+                let progress = self
+                    .solver_progress
+                    .read()
+                    .ok()
+                    .map(|p| p.clone())
+                    .unwrap_or_default();
                 s.render(frame, area, &progress);
             }
             None => {}

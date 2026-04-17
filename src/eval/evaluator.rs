@@ -1,9 +1,9 @@
 //! Core hand evaluation functions.
 
-use itertools::Itertools;
 use crate::cards::card::Card;
+use crate::eval::lookup::{lookup_pairs, FLUSH_TABLE, UNIQUE5_TABLE};
 use crate::eval::rank::HandValue;
-use crate::eval::lookup::{FLUSH_TABLE, UNIQUE5_TABLE, lookup_pairs};
+use itertools::Itertools;
 
 /// Evaluate exactly 5 cards, returning a HandValue (higher = better).
 ///
@@ -45,8 +45,13 @@ pub fn evaluate_five(cards: &[Card; 5]) -> HandValue {
 
 /// Evaluate the best 5-card hand from any number of cards (n >= 5).
 pub fn best_five_of_n(cards: &[Card]) -> HandValue {
-    assert!(cards.len() >= 5, "need at least 5 cards, got {}", cards.len());
-    cards.iter()
+    assert!(
+        cards.len() >= 5,
+        "need at least 5 cards, got {}",
+        cards.len()
+    );
+    cards
+        .iter()
         .combinations(5)
         .map(|combo| {
             let arr: [Card; 5] = [*combo[0], *combo[1], *combo[2], *combo[3], *combo[4]];
@@ -61,17 +66,37 @@ pub fn best_five_of_n(cards: &[Card]) -> HandValue {
 #[inline]
 pub fn best_five_of_seven(cards: &[Card; 7]) -> HandValue {
     const COMBOS: [[usize; 5]; 21] = [
-        [0,1,2,3,4], [0,1,2,3,5], [0,1,2,3,6],
-        [0,1,2,4,5], [0,1,2,4,6], [0,1,2,5,6],
-        [0,1,3,4,5], [0,1,3,4,6], [0,1,3,5,6],
-        [0,1,4,5,6], [0,2,3,4,5], [0,2,3,4,6],
-        [0,2,3,5,6], [0,2,4,5,6], [0,3,4,5,6],
-        [1,2,3,4,5], [1,2,3,4,6], [1,2,3,5,6],
-        [1,2,4,5,6], [1,3,4,5,6], [2,3,4,5,6],
+        [0, 1, 2, 3, 4],
+        [0, 1, 2, 3, 5],
+        [0, 1, 2, 3, 6],
+        [0, 1, 2, 4, 5],
+        [0, 1, 2, 4, 6],
+        [0, 1, 2, 5, 6],
+        [0, 1, 3, 4, 5],
+        [0, 1, 3, 4, 6],
+        [0, 1, 3, 5, 6],
+        [0, 1, 4, 5, 6],
+        [0, 2, 3, 4, 5],
+        [0, 2, 3, 4, 6],
+        [0, 2, 3, 5, 6],
+        [0, 2, 4, 5, 6],
+        [0, 3, 4, 5, 6],
+        [1, 2, 3, 4, 5],
+        [1, 2, 3, 4, 6],
+        [1, 2, 3, 5, 6],
+        [1, 2, 4, 5, 6],
+        [1, 3, 4, 5, 6],
+        [2, 3, 4, 5, 6],
     ];
     let mut best = HandValue(0);
     for idxs in &COMBOS {
-        let arr = [cards[idxs[0]], cards[idxs[1]], cards[idxs[2]], cards[idxs[3]], cards[idxs[4]]];
+        let arr = [
+            cards[idxs[0]],
+            cards[idxs[1]],
+            cards[idxs[2]],
+            cards[idxs[3]],
+            cards[idxs[4]],
+        ];
         let val = evaluate_five(&arr);
         if val > best {
             best = val;
@@ -109,13 +134,17 @@ mod tests {
     use crate::cards::card::{Card, Rank, Suit};
     use crate::eval::rank::HandCategory;
 
-    fn card(r: Rank, s: Suit) -> Card { Card::new(r, s) }
+    fn card(r: Rank, s: Suit) -> Card {
+        Card::new(r, s)
+    }
 
     #[test]
     fn royal_flush() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::King, Suit::Spades),
-            card(Rank::Queen, Suit::Spades), card(Rank::Jack, Suit::Spades),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::King, Suit::Spades),
+            card(Rank::Queen, Suit::Spades),
+            card(Rank::Jack, Suit::Spades),
             card(Rank::Ten, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -125,8 +154,10 @@ mod tests {
     #[test]
     fn straight_flush() {
         let cards = [
-            card(Rank::Nine, Suit::Hearts), card(Rank::Eight, Suit::Hearts),
-            card(Rank::Seven, Suit::Hearts), card(Rank::Six, Suit::Hearts),
+            card(Rank::Nine, Suit::Hearts),
+            card(Rank::Eight, Suit::Hearts),
+            card(Rank::Seven, Suit::Hearts),
+            card(Rank::Six, Suit::Hearts),
             card(Rank::Five, Suit::Hearts),
         ];
         let val = evaluate_five(&cards);
@@ -136,8 +167,10 @@ mod tests {
     #[test]
     fn four_of_a_kind() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::Ace, Suit::Hearts),
-            card(Rank::Ace, Suit::Diamonds), card(Rank::Ace, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Ace, Suit::Hearts),
+            card(Rank::Ace, Suit::Diamonds),
+            card(Rank::Ace, Suit::Clubs),
             card(Rank::King, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -147,8 +180,10 @@ mod tests {
     #[test]
     fn full_house() {
         let cards = [
-            card(Rank::King, Suit::Spades), card(Rank::King, Suit::Hearts),
-            card(Rank::King, Suit::Diamonds), card(Rank::Ace, Suit::Clubs),
+            card(Rank::King, Suit::Spades),
+            card(Rank::King, Suit::Hearts),
+            card(Rank::King, Suit::Diamonds),
+            card(Rank::Ace, Suit::Clubs),
             card(Rank::Ace, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -158,8 +193,10 @@ mod tests {
     #[test]
     fn flush() {
         let cards = [
-            card(Rank::Ace, Suit::Hearts), card(Rank::Jack, Suit::Hearts),
-            card(Rank::Nine, Suit::Hearts), card(Rank::Six, Suit::Hearts),
+            card(Rank::Ace, Suit::Hearts),
+            card(Rank::Jack, Suit::Hearts),
+            card(Rank::Nine, Suit::Hearts),
+            card(Rank::Six, Suit::Hearts),
             card(Rank::Two, Suit::Hearts),
         ];
         let val = evaluate_five(&cards);
@@ -169,8 +206,10 @@ mod tests {
     #[test]
     fn straight() {
         let cards = [
-            card(Rank::Nine, Suit::Spades), card(Rank::Eight, Suit::Hearts),
-            card(Rank::Seven, Suit::Diamonds), card(Rank::Six, Suit::Clubs),
+            card(Rank::Nine, Suit::Spades),
+            card(Rank::Eight, Suit::Hearts),
+            card(Rank::Seven, Suit::Diamonds),
+            card(Rank::Six, Suit::Clubs),
             card(Rank::Five, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -180,8 +219,10 @@ mod tests {
     #[test]
     fn wheel_straight() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::Two, Suit::Hearts),
-            card(Rank::Three, Suit::Diamonds), card(Rank::Four, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Two, Suit::Hearts),
+            card(Rank::Three, Suit::Diamonds),
+            card(Rank::Four, Suit::Clubs),
             card(Rank::Five, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -191,8 +232,10 @@ mod tests {
     #[test]
     fn two_pair() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::Ace, Suit::Hearts),
-            card(Rank::King, Suit::Diamonds), card(Rank::King, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Ace, Suit::Hearts),
+            card(Rank::King, Suit::Diamonds),
+            card(Rank::King, Suit::Clubs),
             card(Rank::Queen, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -202,8 +245,10 @@ mod tests {
     #[test]
     fn one_pair() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::Ace, Suit::Hearts),
-            card(Rank::King, Suit::Diamonds), card(Rank::Queen, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Ace, Suit::Hearts),
+            card(Rank::King, Suit::Diamonds),
+            card(Rank::Queen, Suit::Clubs),
             card(Rank::Jack, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -213,8 +258,10 @@ mod tests {
     #[test]
     fn high_card() {
         let cards = [
-            card(Rank::Ace, Suit::Spades), card(Rank::King, Suit::Hearts),
-            card(Rank::Queen, Suit::Diamonds), card(Rank::Jack, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::King, Suit::Hearts),
+            card(Rank::Queen, Suit::Diamonds),
+            card(Rank::Jack, Suit::Clubs),
             card(Rank::Nine, Suit::Spades),
         ];
         let val = evaluate_five(&cards);
@@ -225,9 +272,12 @@ mod tests {
     fn best_of_seven() {
         // Player has two pair but board gives a full house
         let cards = [
-            card(Rank::King, Suit::Spades), card(Rank::King, Suit::Hearts),   // hole
-            card(Rank::King, Suit::Diamonds), card(Rank::Ace, Suit::Clubs),    // board
-            card(Rank::Ace, Suit::Spades), card(Rank::Two, Suit::Clubs),
+            card(Rank::King, Suit::Spades),
+            card(Rank::King, Suit::Hearts), // hole
+            card(Rank::King, Suit::Diamonds),
+            card(Rank::Ace, Suit::Clubs), // board
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Two, Suit::Clubs),
             card(Rank::Three, Suit::Diamonds),
         ];
         let val = best_five_of_seven(&cards);
@@ -237,18 +287,24 @@ mod tests {
     #[test]
     fn hand_ordering() {
         let rf = evaluate_five(&[
-            card(Rank::Ace, Suit::Spades), card(Rank::King, Suit::Spades),
-            card(Rank::Queen, Suit::Spades), card(Rank::Jack, Suit::Spades),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::King, Suit::Spades),
+            card(Rank::Queen, Suit::Spades),
+            card(Rank::Jack, Suit::Spades),
             card(Rank::Ten, Suit::Spades),
         ]);
         let sf = evaluate_five(&[
-            card(Rank::Nine, Suit::Hearts), card(Rank::Eight, Suit::Hearts),
-            card(Rank::Seven, Suit::Hearts), card(Rank::Six, Suit::Hearts),
+            card(Rank::Nine, Suit::Hearts),
+            card(Rank::Eight, Suit::Hearts),
+            card(Rank::Seven, Suit::Hearts),
+            card(Rank::Six, Suit::Hearts),
             card(Rank::Five, Suit::Hearts),
         ]);
         let foak = evaluate_five(&[
-            card(Rank::Ace, Suit::Spades), card(Rank::Ace, Suit::Hearts),
-            card(Rank::Ace, Suit::Diamonds), card(Rank::Ace, Suit::Clubs),
+            card(Rank::Ace, Suit::Spades),
+            card(Rank::Ace, Suit::Hearts),
+            card(Rank::Ace, Suit::Diamonds),
+            card(Rank::Ace, Suit::Clubs),
             card(Rank::King, Suit::Spades),
         ]);
         assert!(rf > sf);

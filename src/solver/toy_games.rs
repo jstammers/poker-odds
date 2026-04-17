@@ -234,7 +234,14 @@ impl LeducBuilder {
         }
     }
 
-    fn get_info_set(&mut self, player: u8, card: u8, board: u8, history: &[u8], n_actions: u8) -> u32 {
+    fn get_info_set(
+        &mut self,
+        player: u8,
+        card: u8,
+        board: u8,
+        history: &[u8],
+        n_actions: u8,
+    ) -> u32 {
         let key = (player, card, board, history.to_vec());
         if let Some(&idx) = self.info_set_map.get(&key) {
             idx
@@ -323,7 +330,7 @@ impl LeducBuilder {
         &mut self,
         p0_rank: u8,
         p1_rank: u8,
-        board: u8,      // 255 = no board yet
+        board: u8, // 255 = no board yet
         player: u8,
         history: &[u8],
         pot_per_player: f32,
@@ -350,8 +357,15 @@ impl LeducBuilder {
             } else {
                 // P1 still needs to act
                 self.build_betting_node(
-                    p0_rank, p1_rank, board, 1, &new_history,
-                    pot_per_player, bet_size, raises_so_far, round,
+                    p0_rank,
+                    p1_rank,
+                    board,
+                    1,
+                    &new_history,
+                    pot_per_player,
+                    bet_size,
+                    raises_so_far,
+                    round,
                 )
             }
         };
@@ -362,9 +376,16 @@ impl LeducBuilder {
             new_history.push(1);
             let opponent = 1 - player;
             self.build_facing_bet(
-                p0_rank, p1_rank, board, opponent, &new_history,
-                pot_per_player, bet_size, pot_per_player + bet_size,
-                raises_so_far + 1, round,
+                p0_rank,
+                p1_rank,
+                board,
+                opponent,
+                &new_history,
+                pot_per_player,
+                bet_size,
+                pot_per_player + bet_size,
+                raises_so_far + 1,
+                round,
             )
         };
 
@@ -433,10 +454,16 @@ impl LeducBuilder {
                 let opponent = 1 - player;
                 let new_bettor_total = bettor_total + bet_size;
                 self.build_facing_bet(
-                    p0_rank, p1_rank, board, opponent, &new_history,
+                    p0_rank,
+                    p1_rank,
+                    board,
+                    opponent,
+                    &new_history,
                     bettor_total, // caller matched previous bet
-                    bet_size, new_bettor_total,
-                    raises_so_far + 1, round,
+                    bet_size,
+                    new_bettor_total,
+                    raises_so_far + 1,
+                    round,
                 )
             };
             actions.push(Action::Bet((bet_size as u16) * 10000 / 2));
@@ -471,8 +498,15 @@ impl LeducBuilder {
             r2_history.push(100 + board_rank); // encode board card in history
 
             let round2 = self.build_betting_node(
-                p0_rank, p1_rank, board_rank, 0, &r2_history,
-                pot_per_player, 4.0, 0, 2,
+                p0_rank,
+                p1_rank,
+                board_rank,
+                0,
+                &r2_history,
+                pot_per_player,
+                4.0,
+                0,
+                2,
             );
             board_children.push((board_rank, round2));
         }

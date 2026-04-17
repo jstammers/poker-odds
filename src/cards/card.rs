@@ -31,9 +31,19 @@ pub enum Rank {
 
 impl Rank {
     pub const ALL: [Rank; 13] = [
-        Rank::Two, Rank::Three, Rank::Four, Rank::Five, Rank::Six,
-        Rank::Seven, Rank::Eight, Rank::Nine, Rank::Ten,
-        Rank::Jack, Rank::Queen, Rank::King, Rank::Ace,
+        Rank::Two,
+        Rank::Three,
+        Rank::Four,
+        Rank::Five,
+        Rank::Six,
+        Rank::Seven,
+        Rank::Eight,
+        Rank::Nine,
+        Rank::Ten,
+        Rank::Jack,
+        Rank::Queen,
+        Rank::King,
+        Rank::Ace,
     ];
 
     /// 0-based index (Two=0 ... Ace=12)
@@ -66,10 +76,18 @@ impl Rank {
 
     pub fn to_char(self) -> char {
         match self {
-            Rank::Two => '2', Rank::Three => '3', Rank::Four => '4',
-            Rank::Five => '5', Rank::Six => '6', Rank::Seven => '7',
-            Rank::Eight => '8', Rank::Nine => '9', Rank::Ten => 'T',
-            Rank::Jack => 'J', Rank::Queen => 'Q', Rank::King => 'K',
+            Rank::Two => '2',
+            Rank::Three => '3',
+            Rank::Four => '4',
+            Rank::Five => '5',
+            Rank::Six => '6',
+            Rank::Seven => '7',
+            Rank::Eight => '8',
+            Rank::Nine => '9',
+            Rank::Ten => 'T',
+            Rank::Jack => 'J',
+            Rank::Queen => 'Q',
+            Rank::King => 'K',
             Rank::Ace => 'A',
         }
     }
@@ -77,10 +95,18 @@ impl Rank {
     /// Prime number assigned to each rank for hash-based hand evaluation
     pub fn prime(self) -> u32 {
         match self {
-            Rank::Two => 2, Rank::Three => 3, Rank::Four => 5,
-            Rank::Five => 7, Rank::Six => 11, Rank::Seven => 13,
-            Rank::Eight => 17, Rank::Nine => 19, Rank::Ten => 23,
-            Rank::Jack => 29, Rank::Queen => 31, Rank::King => 37,
+            Rank::Two => 2,
+            Rank::Three => 3,
+            Rank::Four => 5,
+            Rank::Five => 7,
+            Rank::Six => 11,
+            Rank::Seven => 13,
+            Rank::Eight => 17,
+            Rank::Nine => 19,
+            Rank::Ten => 23,
+            Rank::Jack => 29,
+            Rank::Queen => 31,
+            Rank::King => 37,
             Rank::Ace => 41,
         }
     }
@@ -116,16 +142,20 @@ impl Suit {
 
     pub fn to_char(self) -> char {
         match self {
-            Suit::Clubs => 'c', Suit::Diamonds => 'd',
-            Suit::Hearts => 'h', Suit::Spades => 's',
+            Suit::Clubs => 'c',
+            Suit::Diamonds => 'd',
+            Suit::Hearts => 'h',
+            Suit::Spades => 's',
         }
     }
 
     /// Unicode glyph for display
     pub fn glyph(self) -> char {
         match self {
-            Suit::Clubs => '♣', Suit::Diamonds => '♦',
-            Suit::Hearts => '♥', Suit::Spades => '♠',
+            Suit::Clubs => '♣',
+            Suit::Diamonds => '♦',
+            Suit::Hearts => '♥',
+            Suit::Spades => '♠',
         }
     }
 }
@@ -200,9 +230,18 @@ mod tests {
 
     #[test]
     fn parse_cards() {
-        assert_eq!(Card::from_str("Ah").unwrap(), Card::new(Rank::Ace, Suit::Hearts));
-        assert_eq!(Card::from_str("Td").unwrap(), Card::new(Rank::Ten, Suit::Diamonds));
-        assert_eq!(Card::from_str("2c").unwrap(), Card::new(Rank::Two, Suit::Clubs));
+        assert_eq!(
+            Card::from_str("Ah").unwrap(),
+            Card::new(Rank::Ace, Suit::Hearts)
+        );
+        assert_eq!(
+            Card::from_str("Td").unwrap(),
+            Card::new(Rank::Ten, Suit::Diamonds)
+        );
+        assert_eq!(
+            Card::from_str("2c").unwrap(),
+            Card::new(Rank::Two, Suit::Clubs)
+        );
         assert!(Card::from_str("Xx").is_err());
     }
 }

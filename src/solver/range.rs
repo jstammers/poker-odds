@@ -172,9 +172,7 @@ impl HandRange {
                         self.add_suited(r1_start, r2);
                         self.add_offsuit(r1_start, r2);
                     }
-                    _ => {
-                        return Err(RangeParseError::InvalidToken(format!("{start}-{end}")))
-                    }
+                    _ => return Err(RangeParseError::InvalidToken(format!("{start}-{end}"))),
                 }
             }
         } else {
@@ -250,7 +248,10 @@ mod tests {
                 let c1 = Card::from_index(i);
                 let c2 = Card::from_index(j);
                 let idx = HandRange::combo_index(c1, c2);
-                assert!(!seen[idx as usize], "Duplicate index {idx} for cards {i},{j}");
+                assert!(
+                    !seen[idx as usize],
+                    "Duplicate index {idx} for cards {i},{j}"
+                );
                 seen[idx as usize] = true;
 
                 // Verify roundtrip

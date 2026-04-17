@@ -87,7 +87,7 @@ impl SolverResultsScreen {
                 Constraint::Length(title_height), // title + ranges
                 Constraint::Length(3),            // progress bar
                 Constraint::Length(5),            // stats
-                Constraint::Fill(1),             // strategy table
+                Constraint::Fill(1),              // strategy table
                 Constraint::Length(1),            // help
             ])
             .split(area);
@@ -117,11 +117,7 @@ impl SolverResultsScreen {
             .iter()
             .enumerate()
             .flat_map(|(i, &c)| {
-                let mut v = if i > 0 {
-                    vec![Span::raw(" ")]
-                } else {
-                    vec![]
-                };
+                let mut v = if i > 0 { vec![Span::raw(" ")] } else { vec![] };
                 v.push(card_span(c));
                 v
             })
@@ -139,10 +135,7 @@ impl SolverResultsScreen {
         let mut lines = vec![
             Line::from(title_spans),
             Line::from(Span::styled(
-                format!(
-                    "  Pot: {:.0}  Stack: {:.0}",
-                    progress.pot, progress.stack
-                ),
+                format!("  Pot: {:.0}  Stack: {:.0}", progress.pot, progress.stack),
                 Theme::dim(),
             )),
         ];
@@ -294,9 +287,7 @@ impl SolverResultsScreen {
             .skip(self.scroll_offset)
             .take(inner.height as usize)
         {
-            let mut spans = vec![
-                Span::styled(format!("  {label:<30}"), Theme::normal()),
-            ];
+            let mut spans = vec![Span::styled(format!("  {label:<30}"), Theme::normal())];
 
             for (action_name, prob) in actions {
                 let bar_width = (*prob * 10.0) as usize;

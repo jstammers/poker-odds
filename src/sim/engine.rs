@@ -148,8 +148,8 @@ where
         let chunk = chunk_size.min(iterations - processed);
         let per_thread = chunk / n_threads as u64;
         let extra = chunk % n_threads as u64; // distributed to first `extra` threads
-        // Use different seed offsets per chunk and per thread so each thread's
-        // RNG stream is statistically independent.
+                                              // Use different seed offsets per chunk and per thread so each thread's
+                                              // RNG stream is statistically independent.
         let chunk_seed = seed.wrapping_add(processed);
 
         // Each thread accumulates independently — no locks in the hot path.
@@ -245,26 +245,26 @@ fn simulate_one<R: rand::Rng>(
     for slot in &mut community_buf[community_known..community_total] {
         match deck.deal_random(rng) {
             Some(c) => *slot = c,
-            None    => return, // deck exhausted — shouldn't happen with valid input
+            None => return, // deck exhausted — shouldn't happen with valid input
         }
     }
     let community = &community_buf[..community_total];
 
     // ── Player evaluation ──────────────────────────────────────────────────────
     let player_value = eval_hand(state.variant, &state.hole_cards, community);
-    let player_cat   = player_value.category();
+    let player_cat = player_value.category();
 
     // ── Opponent evaluations ───────────────────────────────────────────────────
     // Stack buffer: max 7 hole cards (7-Card Stud).
     let hole_per_opp = state.unknown_hole_cards_per_opponent();
-    let mut opp_buf  = [Card::from_index(0); 7];
+    let mut opp_buf = [Card::from_index(0); 7];
     let mut best_opp = HandValue(0);
 
     for _ in 0..state.opponent_count {
         for slot in &mut opp_buf[..hole_per_opp] {
             match deck.deal_random(rng) {
                 Some(c) => *slot = c,
-                None    => return,
+                None => return,
             }
         }
         let opp_val = eval_hand(state.variant, &opp_buf[..hole_per_opp], community);
@@ -285,9 +285,9 @@ fn simulate_one<R: rand::Rng>(
 
 /// Exact enumeration variant — combo is already dealt; uses stack buffer for community.
 fn evaluate_exact_combo(state: &GameState, combo: &[Card], acc: &mut SimAccumulator) {
-    let community_known  = state.community_cards.len();
+    let community_known = state.community_cards.len();
     let community_needed = state.community_cards_remaining();
-    let community_total  = community_known + community_needed;
+    let community_total = community_known + community_needed;
 
     let mut community_buf = [Card::from_index(0); 5];
     community_buf[..community_known].copy_from_slice(&state.community_cards);
@@ -295,10 +295,10 @@ fn evaluate_exact_combo(state: &GameState, combo: &[Card], acc: &mut SimAccumula
     let community = &community_buf[..community_total];
 
     let player_value = eval_hand(state.variant, &state.hole_cards, community);
-    let player_cat   = player_value.category();
+    let player_cat = player_value.category();
 
     let hole_per_opp = state.unknown_hole_cards_per_opponent();
-    let mut offset   = community_needed;
+    let mut offset = community_needed;
     let mut best_opp = HandValue(0);
 
     for _ in 0..state.opponent_count {
@@ -326,20 +326,35 @@ fn eval_hand(variant: GameVariant, hole: &[Card], community: &[Card]) -> HandVal
         GameVariant::TexasHoldem => {
             if community.len() >= 5 && hole.len() >= 2 {
                 let cards = [
-                    hole[0], hole[1],
-                    community[0], community[1], community[2], community[3], community[4],
+                    hole[0],
+                    hole[1],
+                    community[0],
+                    community[1],
+                    community[2],
+                    community[3],
+                    community[4],
                 ];
                 best_five_of_seven(&cards)
             } else {
                 let mut all: Vec<Card> = hole.to_vec();
                 all.extend_from_slice(community);
-                if all.len() >= 5 { best_five_of_n(&all) } else { HandValue(0) }
+                if all.len() >= 5 {
+                    best_five_of_n(&all)
+                } else {
+                    HandValue(0)
+                }
             }
         }
         GameVariant::OmahaHoldem => {
             if community.len() >= 5 && hole.len() >= 4 {
-                let hole_arr  = [hole[0], hole[1], hole[2], hole[3]];
-                let board_arr = [community[0], community[1], community[2], community[3], community[4]];
+                let hole_arr = [hole[0], hole[1], hole[2], hole[3]];
+                let board_arr = [
+                    community[0],
+                    community[1],
+                    community[2],
+                    community[3],
+                    community[4],
+                ];
                 evaluate_omaha(&hole_arr, &board_arr)
             } else {
                 HandValue(0)
@@ -356,8 +371,12 @@ fn eval_hand(variant: GameVariant, hole: &[Card], community: &[Card]) -> HandVal
 }
 
 fn combinations_count(n: usize, k: usize) -> u64 {
-    if k > n { return 0; }
-    if k == 0 { return 1; }
+    if k > n {
+        return 0;
+    }
+    if k == 0 {
+        return 1;
+    }
     let k = k.min(n - k);
     let mut result = 1u64;
     for i in 0..k {

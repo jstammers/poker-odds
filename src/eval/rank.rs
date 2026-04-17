@@ -23,9 +23,15 @@ pub enum HandCategory {
 
 impl HandCategory {
     pub const ALL: [HandCategory; 10] = [
-        HandCategory::HighCard, HandCategory::OnePair, HandCategory::TwoPair,
-        HandCategory::ThreeOfAKind, HandCategory::Straight, HandCategory::Flush,
-        HandCategory::FullHouse, HandCategory::FourOfAKind, HandCategory::StraightFlush,
+        HandCategory::HighCard,
+        HandCategory::OnePair,
+        HandCategory::TwoPair,
+        HandCategory::ThreeOfAKind,
+        HandCategory::Straight,
+        HandCategory::Flush,
+        HandCategory::FullHouse,
+        HandCategory::FourOfAKind,
+        HandCategory::StraightFlush,
         HandCategory::RoyalFlush,
     ];
 
@@ -76,7 +82,7 @@ impl HandValue {
         // Flush=323-1599, Straight=1600-1609, Trips=1610-2467,
         // TwoPair=2468-3325, OnePair=3326-6185, HighCard=6186-7462
         match v {
-            7462        => HandCategory::RoyalFlush,    // CK 1
+            7462 => HandCategory::RoyalFlush,           // CK 1
             7453..=7461 => HandCategory::StraightFlush, // CK 2-10
             7297..=7452 => HandCategory::FourOfAKind,   // CK 11-166
             7141..=7296 => HandCategory::FullHouse,     // CK 167-322
@@ -85,7 +91,7 @@ impl HandValue {
             4996..=5853 => HandCategory::ThreeOfAKind,  // CK 1610-2467
             4138..=4995 => HandCategory::TwoPair,       // CK 2468-3325
             1278..=4137 => HandCategory::OnePair,       // CK 3326-6185
-            _           => HandCategory::HighCard,      // CK 6186-7462
+            _ => HandCategory::HighCard,                // CK 6186-7462
         }
     }
 }

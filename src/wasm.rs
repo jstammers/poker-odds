@@ -1,10 +1,7 @@
 //! wasm-bindgen public API — exposes the poker odds engine to JavaScript.
 
 use std::collections::HashMap;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -37,7 +34,9 @@ struct SimInput {
     rng_seed: Option<u64>,
 }
 
-fn default_opponents() -> usize { 1 }
+fn default_opponents() -> usize {
+    1
+}
 
 #[derive(Serialize)]
 struct SimOutput {
@@ -209,6 +208,8 @@ fn variant_id(v: GameVariant) -> &'static str {
 }
 
 fn error_json(msg: &str) -> String {
-    serde_json::to_string(&ErrorOutput { error: msg.to_string() })
-        .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+    serde_json::to_string(&ErrorOutput {
+        error: msg.to_string(),
+    })
+    .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
 }

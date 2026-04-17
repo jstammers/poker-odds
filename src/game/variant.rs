@@ -28,8 +28,12 @@ impl GameVariant {
     pub fn description(self) -> &'static str {
         match self {
             GameVariant::TexasHoldem => "2 hole cards + 5 community cards. Best 5-card hand wins.",
-            GameVariant::OmahaHoldem => "4 hole cards + 5 community cards. Must use exactly 2 hole + 3 board.",
-            GameVariant::SevenCardStud => "7 cards dealt individually (3 down, 4 up). No community cards.",
+            GameVariant::OmahaHoldem => {
+                "4 hole cards + 5 community cards. Must use exactly 2 hole + 3 board."
+            }
+            GameVariant::SevenCardStud => {
+                "7 cards dealt individually (3 down, 4 up). No community cards."
+            }
             GameVariant::FiveCardDraw => "5 hole cards. No community cards. Can draw new cards.",
         }
     }
@@ -86,10 +90,7 @@ impl GameVariant {
                 BettingRound::StudStreet6,
                 BettingRound::StudStreet7,
             ],
-            GameVariant::FiveCardDraw => &[
-                BettingRound::DrawInitial,
-                BettingRound::DrawAfter,
-            ],
+            GameVariant::FiveCardDraw => &[BettingRound::DrawInitial, BettingRound::DrawAfter],
         }
     }
 }

@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-macos:
     name: Build universal macOS app
     runs-on: macos-14
 
@@ -57,6 +57,24 @@ jobs:
           fi
           cp "$DMG" dist/poker-odds-macos-universal.dmg
           shasum -a 256 dist/poker-odds-macos-universal.dmg > dist/poker-odds-macos-universal.dmg.sha256
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: dist/
+          retention-days: 1
+
+  publish:
+    name: Create GitHub Release
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: dist/
 
       - name: Create release
         uses: softprops/action-gh-release@v2

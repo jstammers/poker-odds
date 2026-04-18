@@ -62,9 +62,8 @@ style: apply cargo fmt
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | PRs + `main` | fmt check, clippy, tests, WASM+web build |
-| `deploy.yml` | `main` push | Build WASM+web, deploy to GitHub Pages |
-| `release.yml` | `v*` tags | Build universal macOS DMG, create GitHub Release |
+| `ci.yml` | PRs + `main` | fmt check, clippy, tests, WASM+web build, deploy to GitHub Pages on `main` |
+| `release.yml` | `v*` tags | Build universal macOS DMG (stored as artifact), then publish GitHub Release |
 
 ### Releasing
 

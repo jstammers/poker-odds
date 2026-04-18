@@ -170,8 +170,8 @@ poker-odds/
 │
 ├── benches/                        # Criterion benchmarks
 ├── .github/workflows/
-│   ├── ci.yml                      # fmt, clippy, tests, WASM+web build, Pages deploy; also builds macOS DMG on tags
-│   └── release.yml                 # Triggered after CI on tags: generates changelog, publishes GitHub Release
+│   ├── ci.yml                      # Three stages: checks → build (wasm, web, tauri matrix) → Pages deploy (main)
+│   └── release.yml                 # On v* tags: build-wasm → tauri-action matrix → git-cliff → publish Release
 ├── Cargo.toml
 └── Makefile
 ```
@@ -233,40 +233,53 @@ The default simulation runs 500,000 iterations, completing in roughly 45 ms nati
 
 ## CI / CD pipeline
 
+Two workflows, three logical stages (**checks → build → deploy**). The build stage stores platform-independent artifacts (WASM, web bundle, per-target Tauri bundles) that downstream stages consume, so nothing is compiled twice within a run. Two caching layers skip unchanged work:
+
+- **Compile cache** — `Swatinem/rust-cache@v2` keeps Cargo's `~/.cargo` and `target/` per-OS.
+- **Output cache** — `actions/cache@v4` stores each job's final output (`web/wasm/`, `web/dist/`, bundle dir) keyed on input-file hashes. On a cache hit the build step is skipped entirely and the cached bytes are re-uploaded as the run's artifact.
+
+Release builds intentionally skip the output cache and rebuild from clean for provenance.
+
 ### `ci.yml` — runs on PRs and pushes to `main`
 
 ```
   fmt ──┐
-        ├──► build-wasm (Linux) ──► web ──► deploy (main only → GitHub Pages)
-  rust ─┘
+        ├──► build-wasm ─┬─► build-web   ─► deploy-pages   (main only)
+  test ─┘                └─► build-tauri (matrix)
 ```
 
 | Job | Runner | What it does |
 |---|---|---|
 | `fmt` | ubuntu | `cargo fmt --all --check` |
-| `rust` | ubuntu | clippy (`-D warnings`) + unit tests |
-| `build-wasm` | ubuntu | `wasm-pack build`, uploads `wasm-pkg` artifact |
-| `web` | ubuntu | downloads `wasm-pkg`, `npm run build`, uploads Pages artifact |
-| `deploy` | ubuntu (`main` only) | deploys `web/dist/` to GitHub Pages |
+| `test` | ubuntu | clippy (native + wasm32, `-D warnings`) + `cargo test --workspace` |
+| `build-wasm` | ubuntu | `wasm-pack build --target bundler`, uploads `wasm-pkg` artifact |
+| `build-web` | ubuntu | downloads `wasm-pkg`, `npm run build`, uploads Pages artifact on `main` |
+| `build-tauri` | matrix | downloads `wasm-pkg`, `tauri-apps/tauri-action@v0` per target, uploads `tauri-bundle-<name>` artifact |
+| `deploy-pages` | ubuntu (`main` only) | `actions/deploy-pages@v4` |
+
+The `build-tauri` matrix ships macOS-universal today. Linux (`.deb`/`.AppImage`), Windows (`.msi`), and mobile (iOS/Android) rows are scaffolded as commented stubs — enable them by uncommenting the matrix entry.
 
 ### `release.yml` — runs on tag push (`v*`)
 
 ```
-  build-wasm (Linux) ──► build-tauri (macOS) ──► release
+  build-wasm ──► build-tauri (matrix) ─┬─► publish
+                                       │
+          changelog ───────────────────┘
 ```
 
 | Job | Runner | What it does |
 |---|---|---|
 | `build-wasm` | ubuntu | `wasm-pack build`, uploads `wasm-pkg` artifact |
-| `build-tauri` | macos-14 | downloads `wasm-pkg`, `tauri build --target universal-apple-darwin`, uploads `macos-dmg` artifact |
-| `release` | ubuntu | downloads `macos-dmg`, generates changelog via git-cliff, publishes GitHub Release |
+| `build-tauri` | matrix | downloads `wasm-pkg`, `tauri-apps/tauri-action@v0`, uploads platform bundle |
+| `changelog` | ubuntu | `orhun/git-cliff-action@v4 --latest --strip-header` |
+| `publish` | ubuntu | downloads all bundles, emits SHA-256 sidecars, `softprops/action-gh-release@v2` |
 
 ## Deployment
 
 ### Web app (GitHub Pages)
 
-Every push to `main` runs `fmt` → `rust` → `build-wasm` → `web` → `deploy`. The `deploy` job publishes `web/dist/` to GitHub Pages.
+Every push to `main` runs `fmt` → `test` → `build-wasm` → `build-web` → `deploy-pages`. `build-tauri` runs in parallel with `build-web` to catch desktop-build regressions on the same commit.
 
 ### Desktop app (GitHub Releases)
 
-Pushing a version tag (`v*`) triggers `release.yml` directly: `build-wasm` (Linux, avoids the macOS `wasm-opt` incompatibility) → `build-tauri` (macOS universal binary) → `release` (generates changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached).
+Pushing a version tag (`v*`) triggers `release.yml`: `build-wasm` (Linux, avoids the macOS `wasm-opt` incompatibility) → `build-tauri` matrix (macOS universal today; Linux/Windows rows flip on when enabled in CI) → `changelog` via [git-cliff](https://git-cliff.org/) → `publish` attaches every bundle with a matching `.sha256` sidecar to the GitHub Release.

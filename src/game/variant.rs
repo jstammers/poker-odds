@@ -16,6 +16,30 @@ impl GameVariant {
         GameVariant::FiveCardDraw,
     ];
 
+    /// Stable string identifier used in the JS/Tauri API (e.g. `"texas_holdem"`).
+    pub fn id(self) -> &'static str {
+        match self {
+            GameVariant::TexasHoldem => "texas_holdem",
+            GameVariant::OmahaHoldem => "omaha_holdem",
+            GameVariant::SevenCardStud => "seven_card_stud",
+            GameVariant::FiveCardDraw => "five_card_draw",
+        }
+    }
+
+    /// Parse the stable string identifier produced by [`GameVariant::id`].
+    pub fn from_id(s: &str) -> Result<Self, String> {
+        match s {
+            "texas_holdem" => Ok(GameVariant::TexasHoldem),
+            "omaha_holdem" => Ok(GameVariant::OmahaHoldem),
+            "seven_card_stud" => Ok(GameVariant::SevenCardStud),
+            "five_card_draw" => Ok(GameVariant::FiveCardDraw),
+            _ => Err(format!(
+                "Unknown variant '{}'. Use one of: texas_holdem, omaha_holdem, seven_card_stud, five_card_draw",
+                s
+            )),
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             GameVariant::TexasHoldem => "Texas Hold'em",
@@ -161,5 +185,24 @@ impl BettingRound {
 impl fmt::Display for BettingRound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn variant_id_roundtrip() {
+        for variant in GameVariant::ALL {
+            let id = variant.id();
+            let parsed = GameVariant::from_id(id).unwrap();
+            assert_eq!(variant, parsed, "round-trip failed for {id}");
+        }
+    }
+
+    #[test]
+    fn variant_from_id_unknown() {
+        assert!(GameVariant::from_id("unknown_game").is_err());
     }
 }

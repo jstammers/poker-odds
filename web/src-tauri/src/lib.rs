@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -119,7 +120,7 @@ struct ActionProbDto {
 
 #[tauri::command]
 fn calculate_odds(input: SimInputDto) -> Result<SimOutputDto, String> {
-    let variant = parse_variant(&input.variant)?;
+    let variant = poker_odds::game::GameVariant::from_id(&input.variant)?;
 
     let mut state = GameState::new(variant);
     state.hole_cards = input
@@ -187,7 +188,7 @@ fn get_variants() -> Vec<VariantInfoDto> {
     GameVariant::ALL
         .iter()
         .map(|v| VariantInfoDto {
-            id: variant_id(*v),
+            id: v.id(),
             name: v.name(),
             description: v.description(),
             hole_card_count: v.hole_card_count(),
@@ -379,27 +380,6 @@ fn cancel_solve(state: tauri::State<'_, AppState>, solve_id: String) -> Result<(
     Ok(())
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn parse_variant(s: &str) -> Result<GameVariant, String> {
-    match s {
-        "texas_holdem" => Ok(GameVariant::TexasHoldem),
-        "omaha_holdem" => Ok(GameVariant::OmahaHoldem),
-        "seven_card_stud" => Ok(GameVariant::SevenCardStud),
-        "five_card_draw" => Ok(GameVariant::FiveCardDraw),
-        _ => Err(format!("Unknown variant '{}'", s)),
-    }
-}
-
-fn variant_id(v: GameVariant) -> &'static str {
-    match v {
-        GameVariant::TexasHoldem => "texas_holdem",
-        GameVariant::OmahaHoldem => "omaha_holdem",
-        GameVariant::SevenCardStud => "seven_card_stud",
-        GameVariant::FiveCardDraw => "five_card_draw",
-    }
-}
-
 // ── Tauri Setup ──────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -419,4 +399,145 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ── Unit Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use poker_odds::cards::Card;
+    use poker_odds::game::GameVariant;
+    use poker_odds::solver::range::HandRange;
+
+    // ── Card parsing ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_card_valid() {
+        assert!(Card::from_str("Ah").is_ok());
+        assert!(Card::from_str("2c").is_ok());
+        assert!(Card::from_str("Td").is_ok());
+        assert!(Card::from_str("Ks").is_ok());
+    }
+
+    #[test]
+    fn validate_card_invalid() {
+        assert!(Card::from_str("XX").is_err());
+        assert!(Card::from_str("").is_err());
+        assert!(Card::from_str("AhKs").is_err());
+    }
+
+    // ── Range parsing ────────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_range_aces() {
+        let r = HandRange::from_str("AA").unwrap();
+        let combos = r.weights.iter().filter(|&&w| w > 0.0).count() as u32;
+        assert_eq!(combos, 6);
+    }
+
+    #[test]
+    fn validate_range_suited() {
+        let r = HandRange::from_str("AKs").unwrap();
+        let combos = r.weights.iter().filter(|&&w| w > 0.0).count() as u32;
+        assert_eq!(combos, 4);
+    }
+
+    #[test]
+    fn validate_range_invalid() {
+        assert!(HandRange::from_str("notarange!!").is_err());
+    }
+
+    // ── Variant ID round-trip ────────────────────────────────────────────────
+
+    #[test]
+    fn variant_id_roundtrip() {
+        for v in GameVariant::ALL {
+            let id = v.id();
+            assert_eq!(GameVariant::from_id(id).unwrap(), v);
+        }
+    }
+
+    #[test]
+    fn variant_from_id_rejects_unknown() {
+        assert!(GameVariant::from_id("bad_variant").is_err());
+    }
+
+    // ── calculate_odds integration ───────────────────────────────────────────
+
+    #[test]
+    fn calculate_odds_texas_holdem_two_cards() {
+        use super::*;
+        let input = SimInputDto {
+            variant: "texas_holdem".to_string(),
+            hole_cards: vec!["Ah".to_string(), "Kh".to_string()],
+            community_cards: vec![],
+            opponent_count: 1,
+            iterations: Some(10_000),
+            exact_threshold: None,
+            rng_seed: Some(42),
+        };
+        let result = calculate_odds(input);
+        assert!(result.is_ok(), "calculate_odds failed: {:?}", result.err());
+        let out = result.unwrap();
+        assert!((out.win + out.tie + out.lose - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calculate_odds_rejects_unknown_variant() {
+        use super::*;
+        let input = SimInputDto {
+            variant: "bad_variant".to_string(),
+            hole_cards: vec!["Ah".to_string(), "Kh".to_string()],
+            community_cards: vec![],
+            opponent_count: 1,
+            iterations: None,
+            exact_threshold: None,
+            rng_seed: None,
+        };
+        assert!(calculate_odds(input).is_err());
+    }
+
+    #[test]
+    fn calculate_odds_rejects_invalid_card() {
+        use super::*;
+        let input = SimInputDto {
+            variant: "texas_holdem".to_string(),
+            hole_cards: vec!["XX".to_string(), "Kh".to_string()],
+            community_cards: vec![],
+            opponent_count: 1,
+            iterations: None,
+            exact_threshold: None,
+            rng_seed: None,
+        };
+        assert!(calculate_odds(input).is_err());
+    }
+
+    #[test]
+    fn calculate_odds_rejects_duplicate_card() {
+        use super::*;
+        let input = SimInputDto {
+            variant: "texas_holdem".to_string(),
+            hole_cards: vec!["Ah".to_string(), "Ah".to_string()],
+            community_cards: vec![],
+            opponent_count: 1,
+            iterations: None,
+            exact_threshold: None,
+            rng_seed: None,
+        };
+        assert!(calculate_odds(input).is_err());
+    }
+
+    #[test]
+    fn get_variants_returns_all_four() {
+        use super::*;
+        let variants = get_variants();
+        assert_eq!(variants.len(), 4);
+        let ids: Vec<&str> = variants.iter().map(|v| v.id).collect();
+        assert!(ids.contains(&"texas_holdem"));
+        assert!(ids.contains(&"omaha_holdem"));
+        assert!(ids.contains(&"seven_card_stud"));
+        assert!(ids.contains(&"five_card_draw"));
+    }
 }

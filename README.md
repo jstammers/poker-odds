@@ -233,24 +233,33 @@ The default simulation runs 500,000 iterations, completing in roughly 45 ms nati
 
 ## CI / CD pipeline
 
+### `ci.yml` — runs on PRs and pushes to `main`
+
 ```
   fmt ──┐
-        ├──► build-wasm (Linux) ──┬──► web ──► deploy (main only → GitHub Pages)
-  rust ─┘                         └──► build-tauri (macOS, tags only → DMG)
-                                                     │
-                                               release.yml
-                                          (workflow_run → GitHub Release)
+        ├──► build-wasm (Linux) ──► web ──► deploy (main only → GitHub Pages)
+  rust ─┘
 ```
 
-| Job | Runner | Trigger | What it does |
-|---|---|---|---|
-| `fmt` | ubuntu | always | `cargo fmt --all --check` |
-| `rust` | ubuntu | always | clippy (`-D warnings`) + unit tests |
-| `build-wasm` | ubuntu | always (after fmt+rust) | `wasm-pack build`, uploads `wasm-pkg` artifact |
-| `web` | ubuntu | always (after build-wasm) | downloads `wasm-pkg`, `npm run build`, uploads Pages artifact |
-| `deploy` | ubuntu | `main` only (after web) | deploys `web/dist/` to GitHub Pages |
-| `build-tauri` | macos-14 | tags only (after build-wasm) | downloads `wasm-pkg`, `tauri build --target universal-apple-darwin`, uploads `macos-dmg` artifact |
-| `release` | ubuntu | `workflow_run` on tag CI success | downloads `macos-dmg`, generates changelog via git-cliff, publishes GitHub Release |
+| Job | Runner | What it does |
+|---|---|---|
+| `fmt` | ubuntu | `cargo fmt --all --check` |
+| `rust` | ubuntu | clippy (`-D warnings`) + unit tests |
+| `build-wasm` | ubuntu | `wasm-pack build`, uploads `wasm-pkg` artifact |
+| `web` | ubuntu | downloads `wasm-pkg`, `npm run build`, uploads Pages artifact |
+| `deploy` | ubuntu (`main` only) | deploys `web/dist/` to GitHub Pages |
+
+### `release.yml` — runs on tag push (`v*`)
+
+```
+  build-wasm (Linux) ──► build-tauri (macOS) ──► release
+```
+
+| Job | Runner | What it does |
+|---|---|---|
+| `build-wasm` | ubuntu | `wasm-pack build`, uploads `wasm-pkg` artifact |
+| `build-tauri` | macos-14 | downloads `wasm-pkg`, `tauri build --target universal-apple-darwin`, uploads `macos-dmg` artifact |
+| `release` | ubuntu | downloads `macos-dmg`, generates changelog via git-cliff, publishes GitHub Release |
 
 ## Deployment
 
@@ -260,4 +269,4 @@ Every push to `main` runs `fmt` → `rust` → `build-wasm` → `web` → `deplo
 
 ### Desktop app (GitHub Releases)
 
-Pushing a version tag (`v*`) runs the full CI pipeline plus `build-tauri` (macOS). Once CI succeeds, `release.yml` fires via `workflow_run`: it generates a changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached.
+Pushing a version tag (`v*`) triggers `release.yml` directly: `build-wasm` (Linux, avoids the macOS `wasm-opt` incompatibility) → `build-tauri` (macOS universal binary) → `release` (generates changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached).

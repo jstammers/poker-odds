@@ -1,8 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use poker_odds::cards::card::{Card, Rank, Suit};
+use poker_odds::solver::abstraction::EquityBuckets;
 use poker_odds::solver::action::BetSizingConfig;
 use poker_odds::solver::cfr::{CfrAlgorithm, CfrSolver, SolverConfig};
-use poker_odds::solver::postflop::build_river_tree;
+use poker_odds::solver::postflop::{build_river_tree, PostflopConfig, PostflopTreeBuilder};
+use poker_odds::solver::range::HandRange;
 use poker_odds::solver::toy_games::{KuhnPoker, LeducPoker};
 
 fn bench_kuhn_cfr_plus(c: &mut Criterion) {
@@ -182,6 +184,65 @@ fn bench_river_traversal_hot(c: &mut Criterion) {
     group.finish();
 }
 
+/// Realistic postflop CFR benchmark on a flop scenario.
+///
+/// The previous benches cover toy games (Kuhn, Leduc) and single-street river
+/// solves. This one exercises the full flop→turn→river tree with equity-bucket
+/// abstraction — representative of the workload a real user hits in the TUI
+/// solver, and the bed on which vector-CFR and action-pruning optimizations
+/// will be measured.
+///
+/// Kept small (pocket-pair range, coarse 12-bucket abstraction, two bet sizes)
+/// so tree construction and one iteration both stay sub-second. Tree is built
+/// once; each bench iteration clones it and runs `solve()` from a fresh store.
+fn bench_flop_cfr_plus(c: &mut Criterion) {
+    let board = [
+        Card::new(Rank::Ten, Suit::Spades),
+        Card::new(Rank::Seven, Suit::Hearts),
+        Card::new(Rank::Two, Suit::Diamonds),
+    ];
+    let bet_config = BetSizingConfig {
+        flop_bets: vec![0.5],
+        flop_raises: vec![1.0],
+        turn_bets: vec![0.75],
+        turn_raises: vec![1.0],
+        river_bets: vec![1.0],
+        river_raises: vec![1.0],
+        always_allow_allin: false,
+        max_raises_per_street: 1,
+    };
+    let range_oop: HandRange = "QQ-TT".parse().expect("valid range");
+    let range_ip: HandRange = "JJ-99".parse().expect("valid range");
+    let config = PostflopConfig {
+        board: board.to_vec(),
+        range_oop,
+        range_ip,
+        starting_pot: 40.0,
+        effective_stack: 100.0,
+        bet_config,
+        abstraction: Box::new(EquityBuckets::new(12)),
+    };
+    let tree = PostflopTreeBuilder::new(config).build();
+
+    let mut group = c.benchmark_group("flop_cfr_plus");
+    group.sample_size(10);
+    for &iters in &[100u32, 500] {
+        group.bench_with_input(BenchmarkId::from_parameter(iters), &iters, |b, &iters| {
+            let solver_config = SolverConfig {
+                algorithm: CfrAlgorithm::CfrPlus,
+                iterations: iters,
+                ..Default::default()
+            };
+            b.iter_batched(
+                || CfrSolver::new(tree.clone(), solver_config.clone()),
+                |mut solver| black_box(solver.solve()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn bench_exploitability(c: &mut Criterion) {
     use poker_odds::solver::exploitability::compute_exploitability;
 
@@ -320,6 +381,7 @@ criterion_group!(
     bench_river_traversal_hot,
     bench_river_dcfr_hot,
     bench_dcfr_discount_pass,
+    bench_flop_cfr_plus,
     bench_exploitability,
     bench_exploitability_river,
     bench_equity_computation,

@@ -4,6 +4,10 @@ use crate::solver::game_tree::{GameTree, GameTreeNode, NodeIndex};
 use crate::solver::info_set::InfoSetStore;
 use crate::solver::strategy::StrategyProfile;
 
+/// Maximum number of actions expected at any decision node.
+/// Used to size stack-allocated scratch buffers on the CFR hot path.
+const MAX_ACTIONS: usize = 16;
+
 /// Which CFR variant to use.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum CfrAlgorithm {
@@ -58,8 +62,25 @@ impl CfrSolver {
     /// Returns the game value from this iteration (player 0's expected payoff).
     /// Call this in a loop for incremental progress reporting.
     pub fn run_iteration(&mut self, iteration_number: u32) -> f64 {
-        let v0 = self.cfr_traverse(self.tree.root, 1.0, 1.0, 0);
-        let _v1 = self.cfr_traverse(self.tree.root, 1.0, 1.0, 1);
+        let use_cfr_plus = matches!(self.config.algorithm, CfrAlgorithm::CfrPlus);
+        let v0 = cfr_traverse(
+            &self.tree,
+            &mut self.store,
+            use_cfr_plus,
+            self.tree.root,
+            1.0,
+            1.0,
+            0,
+        );
+        let _v1 = cfr_traverse(
+            &self.tree,
+            &mut self.store,
+            use_cfr_plus,
+            self.tree.root,
+            1.0,
+            1.0,
+            1,
+        );
 
         if matches!(self.config.algorithm, CfrAlgorithm::Dcfr) {
             self.apply_dcfr_discounts(iteration_number + 1);
@@ -72,11 +93,28 @@ impl CfrSolver {
     /// Returns the game value (expected payoff for player 0).
     pub fn solve(&mut self) -> f64 {
         let mut game_value_sum = 0.0f64;
+        let use_cfr_plus = matches!(self.config.algorithm, CfrAlgorithm::CfrPlus);
 
         for t in 0..self.config.iterations {
             // Traverse for both players (alternating updates)
-            let v0 = self.cfr_traverse(self.tree.root, 1.0, 1.0, 0);
-            let _v1 = self.cfr_traverse(self.tree.root, 1.0, 1.0, 1);
+            let v0 = cfr_traverse(
+                &self.tree,
+                &mut self.store,
+                use_cfr_plus,
+                self.tree.root,
+                1.0,
+                1.0,
+                0,
+            );
+            let _v1 = cfr_traverse(
+                &self.tree,
+                &mut self.store,
+                use_cfr_plus,
+                self.tree.root,
+                1.0,
+                1.0,
+                1,
+            );
             game_value_sum += v0 as f64;
 
             // Apply DCFR discounting after each iteration
@@ -93,85 +131,6 @@ impl CfrSolver {
         StrategyProfile::from_store(&self.store, &self.tree)
     }
 
-    /// Core CFR traversal. Returns the counterfactual value for `traversing_player` at this node.
-    fn cfr_traverse(
-        &mut self,
-        node_idx: NodeIndex,
-        reach_p0: f32,
-        reach_p1: f32,
-        traversing_player: u8,
-    ) -> f32 {
-        match self.tree.nodes[node_idx as usize].clone() {
-            GameTreeNode::Terminal { payoff_p0 } => {
-                if traversing_player == 0 {
-                    payoff_p0
-                } else {
-                    -payoff_p0
-                }
-            }
-            GameTreeNode::Chance { ref children } => {
-                let children = children.clone();
-                let weight = 1.0 / children.len() as f32;
-                children
-                    .iter()
-                    .map(|(_, child)| {
-                        weight * self.cfr_traverse(*child, reach_p0, reach_p1, traversing_player)
-                    })
-                    .sum()
-            }
-            GameTreeNode::Decision {
-                player,
-                ref actions,
-                ref children,
-                info_set_idx,
-            } => {
-                let n_actions = actions.len();
-                let children: Vec<NodeIndex> = children.clone();
-                let strategy = self.store.current_strategy(info_set_idx);
-
-                let mut action_values = vec![0.0f32; n_actions];
-                let mut node_value = 0.0f32;
-
-                for i in 0..n_actions {
-                    let (new_reach_p0, new_reach_p1) = if player == 0 {
-                        (reach_p0 * strategy[i], reach_p1)
-                    } else {
-                        (reach_p0, reach_p1 * strategy[i])
-                    };
-                    action_values[i] = self.cfr_traverse(
-                        children[i],
-                        new_reach_p0,
-                        new_reach_p1,
-                        traversing_player,
-                    );
-                    node_value += strategy[i] * action_values[i];
-                }
-
-                if player == traversing_player {
-                    let opp_reach = if player == 0 { reach_p1 } else { reach_p0 };
-                    let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
-
-                    // Update regrets
-                    for (i, &av) in action_values.iter().enumerate() {
-                        let regret = av - node_value;
-                        self.store.add_regret(info_set_idx, i, opp_reach * regret);
-                    }
-
-                    // CFR+: clip negative regrets
-                    if matches!(self.config.algorithm, CfrAlgorithm::CfrPlus) {
-                        self.store.clip_negative_regrets(info_set_idx);
-                    }
-
-                    // Accumulate strategy for averaging
-                    self.store
-                        .accumulate_strategy(info_set_idx, &strategy, my_reach);
-                }
-
-                node_value
-            }
-        }
-    }
-
     /// Apply DCFR discount factors to all info sets after iteration `t`.
     fn apply_dcfr_discounts(&mut self, t: u32) {
         let t = t as f64;
@@ -186,6 +145,108 @@ impl CfrSolver {
         for idx in 0..self.tree.num_info_sets {
             self.store.discount_regrets(idx, pos_discount, neg_discount);
             self.store.discount_strategy_sum(idx, strat_discount);
+        }
+    }
+}
+
+/// Core CFR traversal. Returns the counterfactual value for `traversing_player`
+/// at `node_idx`.
+///
+/// Split out of `CfrSolver` as a free function so the tree and info-set store
+/// can be borrowed disjointly during recursion — this lets us match on
+/// `&tree.nodes[idx]` without cloning the node's `actions`/`children` vectors.
+fn cfr_traverse(
+    tree: &GameTree,
+    store: &mut InfoSetStore,
+    use_cfr_plus: bool,
+    node_idx: NodeIndex,
+    reach_p0: f32,
+    reach_p1: f32,
+    traversing_player: u8,
+) -> f32 {
+    match &tree.nodes[node_idx as usize] {
+        GameTreeNode::Terminal { payoff_p0 } => {
+            if traversing_player == 0 {
+                *payoff_p0
+            } else {
+                -*payoff_p0
+            }
+        }
+        GameTreeNode::Chance { children } => {
+            let weight = 1.0 / children.len() as f32;
+            let mut sum = 0.0f32;
+            for &(_, child) in children {
+                sum += weight
+                    * cfr_traverse(
+                        tree,
+                        store,
+                        use_cfr_plus,
+                        child,
+                        reach_p0,
+                        reach_p1,
+                        traversing_player,
+                    );
+            }
+            sum
+        }
+        GameTreeNode::Decision {
+            player,
+            children,
+            info_set_idx,
+            ..
+        } => {
+            let player = *player;
+            let info_set_idx = *info_set_idx;
+            let n_actions = children.len();
+            debug_assert!(n_actions <= MAX_ACTIONS);
+
+            let mut strategy = [0.0f32; MAX_ACTIONS];
+            store.current_strategy_into(info_set_idx, &mut strategy[..n_actions]);
+
+            let mut action_values = [0.0f32; MAX_ACTIONS];
+            let mut node_value = 0.0f32;
+
+            for i in 0..n_actions {
+                let child = children[i];
+                let s = strategy[i];
+                let (new_reach_p0, new_reach_p1) = if player == 0 {
+                    (reach_p0 * s, reach_p1)
+                } else {
+                    (reach_p0, reach_p1 * s)
+                };
+                let v = cfr_traverse(
+                    tree,
+                    store,
+                    use_cfr_plus,
+                    child,
+                    new_reach_p0,
+                    new_reach_p1,
+                    traversing_player,
+                );
+                action_values[i] = v;
+                node_value += s * v;
+            }
+
+            if player == traversing_player {
+                let opp_reach = if player == 0 { reach_p1 } else { reach_p0 };
+                let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
+
+                // Update regrets
+                for (i, &av) in action_values[..n_actions].iter().enumerate() {
+                    let regret = av - node_value;
+                    store.add_regret(info_set_idx, i, opp_reach * regret);
+                }
+
+                // CFR+: clip negative regrets
+                if use_cfr_plus {
+                    store.clip_negative_regrets(info_set_idx);
+                }
+
+                // Accumulate strategy for averaging
+                store.accumulate_strategy(info_set_idx, &strategy[..n_actions], my_reach);
+            }
+
+            node_value
         }
     }
 }

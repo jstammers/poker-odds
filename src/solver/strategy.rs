@@ -20,7 +20,8 @@ pub struct StrategyProfile {
 impl StrategyProfile {
     /// Extract the average strategy from the solver's cumulative strategy sums.
     pub fn from_store(store: &InfoSetStore, tree: &GameTree) -> Self {
-        let mut action_probs = Vec::with_capacity(store.strategy_sum.len());
+        let total = store.strategy_sum.len();
+        let mut action_probs = vec![0.0f32; total];
         let mut action_labels: Vec<Vec<Action>> = vec![Vec::new(); tree.num_info_sets as usize];
 
         // Collect action labels from tree nodes
@@ -37,10 +38,12 @@ impl StrategyProfile {
             }
         }
 
-        // Normalize strategy sums to probabilities
+        // Normalize strategy sums to probabilities, writing directly into
+        // the flat output buffer instead of allocating a Vec per info set.
         for idx in 0..store.offsets.len() {
-            let avg = store.average_strategy(idx as u32);
-            action_probs.extend_from_slice(&avg);
+            let offset = store.offsets[idx] as usize;
+            let n = store.num_actions[idx] as usize;
+            store.average_strategy_into(idx as u32, &mut action_probs[offset..offset + n]);
         }
 
         Self {

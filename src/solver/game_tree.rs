@@ -30,6 +30,7 @@ pub enum GameTreeNode {
 }
 
 /// The complete game tree as a flat arena of nodes.
+#[derive(Clone)]
 pub struct GameTree {
     /// All nodes stored contiguously.
     pub nodes: Vec<GameTreeNode>,

@@ -91,6 +91,13 @@ jobs:
       - name: Build web bundle
         run: cd web && npm run build
 
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: web/wasm/
+          retention-days: 30
+
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3

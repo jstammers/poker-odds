@@ -97,6 +97,50 @@ fn bench_river_simple(c: &mut Criterion) {
     group.finish();
 }
 
+/// Stress benchmark for the CFR traversal hot path. Uses a deeper river tree
+/// with more bet sizes and allowed raises so the solver hits more decision
+/// nodes per iteration — this is where per-node heap allocations show up.
+///
+/// Reuse the same tree across iterations to isolate traversal cost from
+/// tree-building cost.
+fn bench_river_traversal_hot(c: &mut Criterion) {
+    let board = [
+        Card::new(Rank::Ace, Suit::Spades),
+        Card::new(Rank::King, Suit::Hearts),
+        Card::new(Rank::Queen, Suit::Diamonds),
+        Card::new(Rank::Seven, Suit::Clubs),
+        Card::new(Rank::Two, Suit::Spades),
+    ];
+    let bet_config = BetSizingConfig {
+        river_bets: vec![0.33, 0.67, 1.0],
+        river_raises: vec![1.0, 2.0],
+        always_allow_allin: true,
+        max_raises_per_street: 2,
+        ..Default::default()
+    };
+
+    let mut group = c.benchmark_group("river_traversal_hot");
+    group.sample_size(10);
+    for &iters in &[500, 2000] {
+        group.bench_with_input(BenchmarkId::from_parameter(iters), &iters, |b, &iters| {
+            b.iter_batched(
+                || {
+                    let tree = build_river_tree(board, 100.0, 200.0, bet_config.clone());
+                    let config = SolverConfig {
+                        algorithm: CfrAlgorithm::CfrPlus,
+                        iterations: iters,
+                        ..Default::default()
+                    };
+                    CfrSolver::new(tree, config)
+                },
+                |mut solver| black_box(solver.solve()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn bench_exploitability(c: &mut Criterion) {
     use poker_odds::solver::exploitability::compute_exploitability;
 
@@ -155,6 +199,7 @@ criterion_group!(
     bench_kuhn_dcfr,
     bench_leduc_cfr_plus,
     bench_river_simple,
+    bench_river_traversal_hot,
     bench_exploitability,
     bench_equity_computation,
 );

@@ -35,17 +35,40 @@ impl InfoSetStore {
     ///
     /// Positive regrets are normalized to a probability distribution.
     /// If all regrets are non-positive, returns uniform random.
-    #[inline]
     pub fn current_strategy(&self, info_set_idx: u32) -> Vec<f32> {
+        let n = self.num_actions[info_set_idx as usize] as usize;
+        let mut out = vec![0.0; n];
+        self.current_strategy_into(info_set_idx, &mut out);
+        out
+    }
+
+    /// Same as [`current_strategy`] but writes into a caller-provided buffer.
+    ///
+    /// `out.len()` must equal the number of actions at the info set. This avoids
+    /// the per-call `Vec<f32>` allocation on the CFR hot path.
+    #[inline]
+    pub fn current_strategy_into(&self, info_set_idx: u32, out: &mut [f32]) {
         let offset = self.offsets[info_set_idx as usize] as usize;
         let n = self.num_actions[info_set_idx as usize] as usize;
+        debug_assert_eq!(out.len(), n);
         let regrets = &self.regrets[offset..offset + n];
 
-        let positive_sum: f32 = regrets.iter().map(|&r| r.max(0.0)).sum();
+        let mut positive_sum = 0.0f32;
+        for &r in regrets {
+            if r > 0.0 {
+                positive_sum += r;
+            }
+        }
         if positive_sum > 0.0 {
-            regrets.iter().map(|&r| r.max(0.0) / positive_sum).collect()
+            let inv = 1.0 / positive_sum;
+            for (o, &r) in out.iter_mut().zip(regrets.iter()) {
+                *o = r.max(0.0) * inv;
+            }
         } else {
-            vec![1.0 / n as f32; n]
+            let u = 1.0 / n as f32;
+            for o in out.iter_mut() {
+                *o = u;
+            }
         }
     }
 

@@ -178,15 +178,34 @@ impl InfoSetStore {
 
     /// Get the average strategy at an info set (the converged Nash equilibrium strategy).
     pub fn average_strategy(&self, info_set_idx: u32) -> Vec<f32> {
+        let n = self.num_actions[info_set_idx as usize] as usize;
+        let mut out = vec![0.0; n];
+        self.average_strategy_into(info_set_idx, &mut out);
+        out
+    }
+
+    /// Same as [`average_strategy`] but writes into a caller-provided buffer.
+    ///
+    /// `out.len()` must equal the number of actions at the info set. This avoids
+    /// per-call `Vec<f32>` allocation in exploitability/best-response traversal.
+    #[inline]
+    pub fn average_strategy_into(&self, info_set_idx: u32, out: &mut [f32]) {
         let offset = self.offsets[info_set_idx as usize] as usize;
         let n = self.num_actions[info_set_idx as usize] as usize;
+        debug_assert_eq!(out.len(), n);
         let sums = &self.strategy_sum[offset..offset + n];
 
         let total: f32 = sums.iter().sum();
         if total > 0.0 {
-            sums.iter().map(|&s| s / total).collect()
+            let inv = 1.0 / total;
+            for (o, &s) in out.iter_mut().zip(sums.iter()) {
+                *o = s * inv;
+            }
         } else {
-            vec![1.0 / n as f32; n]
+            let u = 1.0 / n as f32;
+            for o in out.iter_mut() {
+                *o = u;
+            }
         }
     }
 }

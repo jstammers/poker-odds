@@ -199,6 +199,42 @@ fn bench_exploitability(c: &mut Criterion) {
     });
 }
 
+/// Exploitability benchmark on a deeper river tree. The existing Kuhn case is
+/// too small for heap-allocation costs in the best-response traversal to show
+/// up — this one exercises a tree with more decision nodes and opponent info
+/// sets (where pass1/pass2 read the averaged strategy per node).
+fn bench_exploitability_river(c: &mut Criterion) {
+    use poker_odds::solver::exploitability::compute_exploitability;
+
+    let board = [
+        Card::new(Rank::Ace, Suit::Spades),
+        Card::new(Rank::King, Suit::Hearts),
+        Card::new(Rank::Queen, Suit::Diamonds),
+        Card::new(Rank::Seven, Suit::Clubs),
+        Card::new(Rank::Two, Suit::Spades),
+    ];
+    let bet_config = BetSizingConfig {
+        river_bets: vec![0.33, 0.67, 1.0],
+        river_raises: vec![1.0, 2.0],
+        always_allow_allin: true,
+        max_raises_per_street: 2,
+        ..Default::default()
+    };
+
+    let tree = build_river_tree(board, 100.0, 200.0, bet_config);
+    let config = SolverConfig {
+        algorithm: CfrAlgorithm::CfrPlus,
+        iterations: 2000,
+        ..Default::default()
+    };
+    let mut solver = CfrSolver::new(tree, config);
+    solver.solve();
+
+    c.bench_function("river_exploitability", |b| {
+        b.iter(|| black_box(compute_exploitability(&solver.tree, &solver.store, 1.0)));
+    });
+}
+
 /// Microbenchmark: the DCFR discount pass over a large synthetic flat store.
 ///
 /// Exercises `InfoSetStore::{discount_regrets_all, discount_strategy_sum_all}`
@@ -285,6 +321,7 @@ criterion_group!(
     bench_river_dcfr_hot,
     bench_dcfr_discount_pass,
     bench_exploitability,
+    bench_exploitability_river,
     bench_equity_computation,
 );
 criterion_main!(benches);

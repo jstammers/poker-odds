@@ -48,8 +48,13 @@ jobs:
 
       - name: Package DMG
         run: |
+          set -euo pipefail
           mkdir -p dist
-          DMG=$(find web/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          DMG=$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          if [ -z "$DMG" ]; then
+            echo "Error: no DMG file found in target/universal-apple-darwin/release/bundle/dmg"
+            exit 1
+          fi
           cp "$DMG" dist/poker-odds-macos-universal.dmg
           shasum -a 256 dist/poker-odds-macos-universal.dmg > dist/poker-odds-macos-universal.dmg.sha256
 

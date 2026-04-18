@@ -231,12 +231,33 @@ The default simulation runs 500,000 iterations, completing in roughly 45 ms nati
 
 ---
 
+## CI / CD pipeline
+
+```
+  fmt ──┐
+        ├──► build-wasm (Linux) ──┬──► web ──► deploy (main only → GitHub Pages)
+  rust ─┘                         └──► build-tauri (macOS, tags only → DMG)
+                                                     │
+                                               release.yml
+                                          (workflow_run → GitHub Release)
+```
+
+| Job | Runner | Trigger | What it does |
+|---|---|---|---|
+| `fmt` | ubuntu | always | `cargo fmt --all --check` |
+| `rust` | ubuntu | always | clippy (`-D warnings`) + unit tests |
+| `build-wasm` | ubuntu | always (after fmt+rust) | `wasm-pack build`, uploads `wasm-pkg` artifact |
+| `web` | ubuntu | always (after build-wasm) | downloads `wasm-pkg`, `npm run build`, uploads Pages artifact |
+| `deploy` | ubuntu | `main` only (after web) | deploys `web/dist/` to GitHub Pages |
+| `build-tauri` | macos-14 | tags only (after build-wasm) | downloads `wasm-pkg`, `tauri build --target universal-apple-darwin`, uploads `macos-dmg` artifact |
+| `release` | ubuntu | `workflow_run` on tag CI success | downloads `macos-dmg`, generates changelog via git-cliff, publishes GitHub Release |
+
 ## Deployment
 
 ### Web app (GitHub Pages)
 
-The `ci.yml` workflow runs on every push to `main`. It checks formatting, runs clippy and tests, builds WASM with wasm-pack, bundles with Vite, and deploys `web/dist/` to GitHub Pages.
+Every push to `main` runs `fmt` → `rust` → `build-wasm` → `web` → `deploy`. The `deploy` job publishes `web/dist/` to GitHub Pages.
 
 ### Desktop app (GitHub Releases)
 
-Pushing a version tag (`v*`) triggers additional jobs in `ci.yml` after the regular checks pass: `build-wasm` (Linux) compiles the WASM package and `build-tauri` (macOS) produces a universal `.dmg`. Once CI succeeds, `release.yml` fires automatically via `workflow_run`. It generates a changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached.
+Pushing a version tag (`v*`) runs the full CI pipeline plus `build-tauri` (macOS). Once CI succeeds, `release.yml` fires via `workflow_run`: it generates a changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached.

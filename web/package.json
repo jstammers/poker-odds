@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "wasm": "wasm-pack build .. --target bundler --out-dir wasm --release"
+    "wasm": "wasm-pack build .. --target bundler --out-dir wasm --release",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

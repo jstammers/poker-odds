@@ -1,6 +1,6 @@
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Deploy](https://github.com/jstammers/poker-odds/actions/workflows/deploy.yml/badge.svg)](https://github.com/jstammers/poker-odds/actions/workflows/deploy.yml)
+[![CI](https://github.com/jstammers/poker-odds/actions/workflows/ci.yml/badge.svg)](https://github.com/jstammers/poker-odds/actions/workflows/ci.yml)
 
 # poker-odds
 
@@ -170,8 +170,8 @@ poker-odds/
 │
 ├── benches/                        # Criterion benchmarks
 ├── .github/workflows/
-│   ├── deploy.yml                  # WASM web app → GitHub Pages
-│   └── release.yml                 # Tauri .dmg → GitHub Releases
+│   ├── ci.yml                      # fmt, clippy, tests, WASM+web build, Pages deploy; also builds macOS DMG on tags
+│   └── release.yml                 # Triggered after CI on tags: generates changelog, publishes GitHub Release
 ├── Cargo.toml
 └── Makefile
 ```
@@ -235,8 +235,8 @@ The default simulation runs 500,000 iterations, completing in roughly 45 ms nati
 
 ### Web app (GitHub Pages)
 
-The workflow at `.github/workflows/deploy.yml` runs on every push to `main`. It builds WASM with wasm-pack, bundles with Vite, and deploys `web/dist/` to GitHub Pages.
+The `ci.yml` workflow runs on every push to `main`. It checks formatting, runs clippy and tests, builds WASM with wasm-pack, bundles with Vite, and deploys `web/dist/` to GitHub Pages.
 
 ### Desktop app (GitHub Releases)
 
-The workflow at `.github/workflows/release.yml` triggers on version tags (`v*`). It builds the Tauri app for macOS (aarch64 + x86_64) and uploads `.dmg` files to the GitHub Release.
+Pushing a version tag (`v*`) triggers additional jobs in `ci.yml` after the regular checks pass: `build-wasm` (Linux) compiles the WASM package and `build-tauri` (macOS) produces a universal `.dmg`. Once CI succeeds, `release.yml` fires automatically via `workflow_run`. It generates a changelog with [git-cliff](https://git-cliff.org/) and publishes the GitHub Release with the `.dmg` attached.

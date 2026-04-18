@@ -233,19 +233,17 @@ fn cfr_traverse(
                 let opp_reach = if player == 0 { reach_p1 } else { reach_p0 };
                 let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
 
-                // Update regrets
-                for (i, &av) in action_values[..n_actions].iter().enumerate() {
-                    let regret = av - node_value;
-                    store.add_regret(info_set_idx, i, opp_reach * regret);
-                }
-
-                // CFR+: clip negative regrets
-                if use_cfr_plus {
-                    store.clip_negative_regrets(info_set_idx);
-                }
-
-                // Accumulate strategy for averaging
-                store.accumulate_strategy(info_set_idx, &strategy[..n_actions], my_reach);
+                // Combined regret update + optional CFR+ clip + strategy
+                // accumulation under a single offset lookup.
+                store.update_regrets_and_strategy(
+                    info_set_idx,
+                    &action_values[..n_actions],
+                    node_value,
+                    &strategy[..n_actions],
+                    opp_reach,
+                    my_reach,
+                    use_cfr_plus,
+                );
             }
 
             node_value

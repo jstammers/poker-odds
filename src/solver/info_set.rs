@@ -103,6 +103,52 @@ impl InfoSetStore {
         }
     }
 
+    /// Combined CFR update for one info set: add regrets (scaled by `opp_reach`),
+    /// optionally clip negatives (CFR+), and accumulate strategy weights (scaled
+    /// by `my_reach`) — all under a single offset lookup.
+    ///
+    /// Replaces three separate hot-path calls (`add_regret` in a loop,
+    /// `clip_negative_regrets`, `accumulate_strategy`) with one method so the
+    /// offset/length lookups happen once per decision-node visit instead of
+    /// 2 + n_actions times.
+    ///
+    /// `action_values.len()` and `strategy.len()` must equal the number of
+    /// actions at the info set.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_regrets_and_strategy(
+        &mut self,
+        info_set_idx: u32,
+        action_values: &[f32],
+        node_value: f32,
+        strategy: &[f32],
+        opp_reach: f32,
+        my_reach: f32,
+        clip_negative: bool,
+    ) {
+        let offset = self.offsets[info_set_idx as usize] as usize;
+        let n = self.num_actions[info_set_idx as usize] as usize;
+        debug_assert_eq!(action_values.len(), n);
+        debug_assert_eq!(strategy.len(), n);
+
+        let regrets = &mut self.regrets[offset..offset + n];
+        if clip_negative {
+            for (r, &av) in regrets.iter_mut().zip(action_values.iter()) {
+                let updated = *r + opp_reach * (av - node_value);
+                *r = updated.max(0.0);
+            }
+        } else {
+            for (r, &av) in regrets.iter_mut().zip(action_values.iter()) {
+                *r += opp_reach * (av - node_value);
+            }
+        }
+
+        let sums = &mut self.strategy_sum[offset..offset + n];
+        for (sum, &s) in sums.iter_mut().zip(strategy.iter()) {
+            *sum += my_reach * s;
+        }
+    }
+
     /// CFR+: clip all negative regrets to zero for an info set.
     #[inline]
     pub fn clip_negative_regrets(&mut self, info_set_idx: u32) {

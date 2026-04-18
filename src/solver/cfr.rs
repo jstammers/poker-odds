@@ -132,6 +132,10 @@ impl CfrSolver {
     }
 
     /// Apply DCFR discount factors to all info sets after iteration `t`.
+    ///
+    /// The factors are uniform across info sets, so this is just an elementwise
+    /// sweep over the flat regret and strategy-sum arrays — parallelized with
+    /// rayon for large trees via `discount_*_all`.
     fn apply_dcfr_discounts(&mut self, t: u32) {
         let t = t as f64;
         let alpha = self.config.dcfr_alpha;
@@ -142,10 +146,8 @@ impl CfrSolver {
         let neg_discount = (t.powf(beta) / (t.powf(beta) + 1.0)) as f32;
         let strat_discount = (t / (t + 1.0)).powf(gamma) as f32;
 
-        for idx in 0..self.tree.num_info_sets {
-            self.store.discount_regrets(idx, pos_discount, neg_discount);
-            self.store.discount_strategy_sum(idx, strat_discount);
-        }
+        self.store.discount_regrets_all(pos_discount, neg_discount);
+        self.store.discount_strategy_sum_all(strat_discount);
     }
 }
 

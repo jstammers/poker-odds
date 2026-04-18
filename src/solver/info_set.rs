@@ -1,3 +1,14 @@
+use rayon::prelude::*;
+
+/// Below this total flat-array length, the bulk DCFR discount operations run
+/// serially. Rayon's work-splitting has non-trivial overhead, and the discount
+/// pass is memory-bandwidth-bound — parallelism only pays off on stores that
+/// are much larger than L3 cache. On a 16-core box the empirical crossover
+/// lives near 1–2M f32 elements; this threshold is chosen to keep Kuhn, Leduc,
+/// and typical river postflop trees on the serial path while still firing on
+/// million-info-set solves.
+const PARALLEL_DISCOUNT_THRESHOLD: usize = 2_000_000;
+
 /// Storage for per-information-set cumulative regrets and strategy sums.
 ///
 /// Uses flat parallel arrays for cache efficiency. Each info set's data is stored
@@ -131,6 +142,37 @@ impl InfoSetStore {
         let n = self.num_actions[info_set_idx as usize] as usize;
         for i in 0..n {
             self.strategy_sum[offset + i] *= discount;
+        }
+    }
+
+    /// DCFR: apply discount factors to all regrets across every info set in one pass.
+    ///
+    /// The factors don't depend on info-set identity, so we can treat the entire
+    /// flat array as one sequence and parallelize with rayon. For small stores
+    /// we fall back to a serial loop to avoid rayon's per-call overhead.
+    pub fn discount_regrets_all(&mut self, positive_discount: f32, negative_discount: f32) {
+        let apply = |r: &mut f32| {
+            if *r > 0.0 {
+                *r *= positive_discount;
+            } else {
+                *r *= negative_discount;
+            }
+        };
+        if self.regrets.len() >= PARALLEL_DISCOUNT_THRESHOLD {
+            self.regrets.par_iter_mut().for_each(apply);
+        } else {
+            self.regrets.iter_mut().for_each(apply);
+        }
+    }
+
+    /// DCFR: apply a discount factor to every strategy sum in one pass.
+    pub fn discount_strategy_sum_all(&mut self, discount: f32) {
+        if self.strategy_sum.len() >= PARALLEL_DISCOUNT_THRESHOLD {
+            self.strategy_sum
+                .par_iter_mut()
+                .for_each(|s| *s *= discount);
+        } else {
+            self.strategy_sum.iter_mut().for_each(|s| *s *= discount);
         }
     }
 

@@ -103,6 +103,47 @@ fn bench_river_simple(c: &mut Criterion) {
 ///
 /// Reuse the same tree across iterations to isolate traversal cost from
 /// tree-building cost.
+/// DCFR stress benchmark. DCFR applies a discount sweep over the entire flat
+/// regret and strategy-sum arrays every iteration; on larger trees this pass
+/// becomes a meaningful fraction of runtime and benefits from parallelism.
+fn bench_river_dcfr_hot(c: &mut Criterion) {
+    let board = [
+        Card::new(Rank::Ace, Suit::Spades),
+        Card::new(Rank::King, Suit::Hearts),
+        Card::new(Rank::Queen, Suit::Diamonds),
+        Card::new(Rank::Seven, Suit::Clubs),
+        Card::new(Rank::Two, Suit::Spades),
+    ];
+    let bet_config = BetSizingConfig {
+        river_bets: vec![0.33, 0.67, 1.0],
+        river_raises: vec![1.0, 2.0],
+        always_allow_allin: true,
+        max_raises_per_street: 2,
+        ..Default::default()
+    };
+
+    let mut group = c.benchmark_group("river_dcfr_hot");
+    group.sample_size(10);
+    for &iters in &[500, 2000] {
+        group.bench_with_input(BenchmarkId::from_parameter(iters), &iters, |b, &iters| {
+            b.iter_batched(
+                || {
+                    let tree = build_river_tree(board, 100.0, 200.0, bet_config.clone());
+                    let config = SolverConfig {
+                        algorithm: CfrAlgorithm::Dcfr,
+                        iterations: iters,
+                        ..Default::default()
+                    };
+                    CfrSolver::new(tree, config)
+                },
+                |mut solver| black_box(solver.solve()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn bench_river_traversal_hot(c: &mut Criterion) {
     let board = [
         Card::new(Rank::Ace, Suit::Spades),
@@ -158,6 +199,47 @@ fn bench_exploitability(c: &mut Criterion) {
     });
 }
 
+/// Microbenchmark: the DCFR discount pass over a large synthetic flat store.
+///
+/// Exercises `InfoSetStore::{discount_regrets_all, discount_strategy_sum_all}`
+/// in isolation so the parallel-vs-serial contribution is visible without being
+/// dwarfed by CFR traversal cost. Sizes bracket the rayon threshold.
+fn bench_dcfr_discount_pass(c: &mut Criterion) {
+    use poker_odds::solver::info_set::InfoSetStore;
+
+    let mut group = c.benchmark_group("dcfr_discount_pass");
+    for &n_info_sets in &[1_000usize, 50_000, 500_000] {
+        let actions: Vec<u8> = vec![6; n_info_sets];
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_info_sets),
+            &actions,
+            |b, actions| {
+                b.iter_batched(
+                    || {
+                        let mut store = InfoSetStore::new(actions);
+                        // Seed with a mix of positive and negative regrets so the
+                        // branch in `discount_regrets_all` exercises both arms.
+                        for (i, r) in store.regrets.iter_mut().enumerate() {
+                            *r = if i % 2 == 0 { 1.5 } else { -0.75 };
+                        }
+                        for s in store.strategy_sum.iter_mut() {
+                            *s = 0.25;
+                        }
+                        store
+                    },
+                    |mut store| {
+                        store.discount_regrets_all(black_box(0.95), black_box(0.5));
+                        store.discount_strategy_sum_all(black_box(0.9));
+                        black_box(store)
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+    group.finish();
+}
+
 fn bench_equity_computation(c: &mut Criterion) {
     use poker_odds::solver::abstraction::EquityBuckets;
 
@@ -200,6 +282,8 @@ criterion_group!(
     bench_leduc_cfr_plus,
     bench_river_simple,
     bench_river_traversal_hot,
+    bench_river_dcfr_hot,
+    bench_dcfr_discount_pass,
     bench_exploitability,
     bench_equity_computation,
 );

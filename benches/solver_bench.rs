@@ -372,6 +372,52 @@ fn bench_equity_computation(c: &mut Criterion) {
     });
 }
 
+/// Showdown evaluation microbenchmark.
+///
+/// The vector-CFR optimisation hinges on being able to evaluate a river
+/// showdown terminal given per-combo reach vectors for both players. This
+/// benchmark measures both the one-off `ShowdownRanker::new` cost (precomputed
+/// per terminal) and the repeated `terminal_ev` cost (paid every iteration).
+///
+/// Reaches are seeded with a realistic range shape — here ~250 non-zero combos
+/// from the "QQ-TT, AK, AQs" pocket-pair/broadway matchup — so the result is
+/// representative of a solver workload rather than a degenerate all-zero
+/// case. A follow-up O(N log N) implementation of `terminal_ev` will be
+/// compared against this baseline.
+fn bench_showdown(c: &mut Criterion) {
+    use poker_odds::solver::range::HandRange;
+    use poker_odds::solver::showdown::{ShowdownRanker, N_COMBOS};
+
+    let board = [
+        Card::new(Rank::Ace, Suit::Spades),
+        Card::new(Rank::King, Suit::Hearts),
+        Card::new(Rank::Queen, Suit::Diamonds),
+        Card::new(Rank::Seven, Suit::Clubs),
+        Card::new(Rank::Two, Suit::Spades),
+    ];
+
+    c.bench_function("showdown_ranker_build", |b| {
+        b.iter(|| black_box(ShowdownRanker::new(black_box(&board))))
+    });
+
+    // Seed realistic reach vectors for the terminal EV bench.
+    let oop: HandRange = "QQ-TT,AK,AQs".parse().expect("valid range");
+    let ip: HandRange = "JJ-88,AQ,AJs,KQs".parse().expect("valid range");
+    let mut reach_p0 = [0.0f32; N_COMBOS];
+    let mut reach_p1 = [0.0f32; N_COMBOS];
+    for (i, &w) in oop.weights.iter().enumerate() {
+        reach_p0[i] = w;
+    }
+    for (i, &w) in ip.weights.iter().enumerate() {
+        reach_p1[i] = w;
+    }
+    let ranker = ShowdownRanker::new(&board);
+
+    c.bench_function("showdown_terminal_ev_naive", |b| {
+        b.iter(|| black_box(ranker.terminal_ev_naive(black_box(&reach_p0), black_box(&reach_p1))))
+    });
+}
+
 criterion_group!(
     benches,
     bench_kuhn_cfr_plus,
@@ -385,5 +431,6 @@ criterion_group!(
     bench_exploitability,
     bench_exploitability_river,
     bench_equity_computation,
+    bench_showdown,
 );
 criterion_main!(benches);

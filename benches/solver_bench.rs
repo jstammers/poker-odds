@@ -429,6 +429,95 @@ fn bench_showdown(c: &mut Criterion) {
     });
 }
 
+/// Per-combo info-set store microbenchmark.
+///
+/// `VectorInfoSetStore` carries 1326 regret/strategy-sum entries per
+/// `(info_set, action)` pair. The CFR hot path hits
+/// `current_strategy_into` and `update_regrets_and_strategy` once per
+/// decision-node visit, so both need to be cache-friendly. This bench sizes
+/// the store to a representative river subgame (~100 info sets × 4 actions,
+/// ~2 MB per slab) and measures the two hot methods in isolation. It also
+/// covers a larger "flop-ish" size (~1k info sets × 6 actions) to track
+/// bandwidth scaling before the full vector traversal lands.
+fn bench_vector_info_set(c: &mut Criterion) {
+    use poker_odds::solver::showdown::N_COMBOS;
+    use poker_odds::solver::vector_info_set::VectorInfoSetStore;
+
+    let mut group = c.benchmark_group("vector_info_set");
+    group.sample_size(20);
+
+    for &(n_info_sets, n_actions) in &[(100usize, 4u8), (1_000usize, 6u8)] {
+        let actions: Vec<u8> = vec![n_actions; n_info_sets];
+
+        // Build once and share across benches inside this pair.
+        let mut store = VectorInfoSetStore::new(&actions);
+        // Seed with a mix of positive and negative regrets so regret matching
+        // exercises both branches.
+        for (i, r) in store.regrets.iter_mut().enumerate() {
+            *r = if i % 3 == 0 { 2.5 } else { -0.5 };
+        }
+
+        let n = n_actions as usize;
+        let mut strategy_buf = vec![0.0f32; N_COMBOS * n];
+
+        group.bench_with_input(
+            BenchmarkId::new(
+                "current_strategy_into",
+                format!("{n_info_sets}x{n_actions}"),
+            ),
+            &n_info_sets,
+            |b, &n_info_sets| {
+                b.iter(|| {
+                    for idx in 0..n_info_sets {
+                        store.current_strategy_into(idx as u32, &mut strategy_buf);
+                        black_box(&strategy_buf);
+                    }
+                });
+            },
+        );
+
+        // Seed per-combo reach / value vectors for the update bench.
+        let mut action_values = vec![0.0f32; N_COMBOS * n];
+        for (i, v) in action_values.iter_mut().enumerate() {
+            *v = (i as f32 * 0.001).sin();
+        }
+        let strategy = vec![1.0f32 / n as f32; N_COMBOS * n];
+        let node_value = vec![0.25f32; N_COMBOS];
+        let opp_reach = vec![0.8f32; N_COMBOS];
+        let my_reach = vec![0.6f32; N_COMBOS];
+
+        group.bench_with_input(
+            BenchmarkId::new(
+                "update_regrets_and_strategy",
+                format!("{n_info_sets}x{n_actions}"),
+            ),
+            &n_info_sets,
+            |b, &n_info_sets| {
+                b.iter_batched(
+                    || VectorInfoSetStore::new(&actions),
+                    |mut store| {
+                        for idx in 0..n_info_sets {
+                            store.update_regrets_and_strategy(
+                                idx as u32,
+                                black_box(&action_values),
+                                black_box(&node_value),
+                                black_box(&strategy),
+                                black_box(&opp_reach),
+                                black_box(&my_reach),
+                                true,
+                            );
+                        }
+                        black_box(store)
+                    },
+                    criterion::BatchSize::LargeInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_kuhn_cfr_plus,
@@ -443,5 +532,6 @@ criterion_group!(
     bench_exploitability_river,
     bench_equity_computation,
     bench_showdown,
+    bench_vector_info_set,
 );
 criterion_main!(benches);

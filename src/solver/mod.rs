@@ -10,3 +10,4 @@ pub mod showdown;
 pub mod strategy;
 pub mod toy_games;
 pub mod upi;
+pub mod vector_info_set;

@@ -416,6 +416,17 @@ fn bench_showdown(c: &mut Criterion) {
     c.bench_function("showdown_terminal_ev_naive", |b| {
         b.iter(|| black_box(ranker.terminal_ev_naive(black_box(&reach_p0), black_box(&reach_p1))))
     });
+
+    c.bench_function("showdown_terminal_ev_fast", |b| {
+        b.iter(|| black_box(ranker.terminal_ev(black_box(&reach_p0), black_box(&reach_p1))))
+    });
+
+    // Full-range stress: every combo has non-zero reach. Worst case for the
+    // fast path's per-card prefix pass (nothing prunable via reach == 0).
+    let full_reach = [1.0f32; N_COMBOS];
+    c.bench_function("showdown_terminal_ev_fast_fullrange", |b| {
+        b.iter(|| black_box(ranker.terminal_ev(black_box(&full_reach), black_box(&full_reach))))
+    });
 }
 
 criterion_group!(

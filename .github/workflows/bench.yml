@@ -30,7 +30,7 @@ jobs:
           shared-key: bench-base-${{ github.base_ref }}
 
       - name: Run benchmarks
-        run: cargo bench --workspace
+        run: cargo bench
 
       - name: Upload Criterion results
         uses: actions/upload-artifact@v4
@@ -54,7 +54,7 @@ jobs:
           shared-key: bench-pr-${{ github.sha }}
 
       - name: Run benchmarks
-        run: cargo bench --workspace
+        run: cargo bench
 
       - name: Upload Criterion results
         uses: actions/upload-artifact@v4

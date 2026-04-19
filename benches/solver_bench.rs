@@ -528,6 +528,43 @@ fn bench_vector_info_set(c: &mut Criterion) {
 /// info sets while the vector tree has tens, so build cost is part of the
 /// real-world delta a caller sees.
 ///
+/// ## Why this benchmark is misleading
+///
+/// This benchmark has two structural unfairnesses that suppress the apparent
+/// vector speedup:
+///
+/// 1. **Wrong scale.** One vector iteration processes all 1326 combos at once;
+///    one scalar iteration processes exactly one combo (one info-set traversal).
+///    Comparing N vector iterations to N scalar iterations ignores the 1326×
+///    implicit work in each scalar run. The fair comparison requires N×1326
+///    scalar iterations vs N vector iterations — see
+///    `bench_river_full_range_vs_vector` for that framing.
+///
+/// 2. **Placeholder payoffs.** The scalar `build_river_tree` stores a fixed
+///    `payoff_p0 = pot_size` at every showdown terminal (see
+///    `PostflopTreeBuilder::showdown`). The scalar solver reads that value
+///    directly at traversal time and never evaluates actual hand strengths.
+///    The vector solver calls `ShowdownRanker::ev_vs_opponent` (O(N·52)) at
+///    every showdown terminal every iteration. A faithful scalar evaluator
+///    would need O(N) work per terminal per combo (sum opponent reach over
+///    compatible combos), so scalar's real cost should be O(N²) per
+///    iteration; vector replaces that with O(N·52). The placeholder hides
+///    this 25× terminal advantage of the vector formulation.
+///
+/// ## Remaining overhead in the vector path
+///
+/// Even after fixing the redundant reach-vector clone (each decision node
+/// previously allocated `Box<[f32; N_COMBOS]>` for the *unchanged* player
+/// per action), two significant allocation sources remain per traversal:
+///
+/// - `vec![0.0f32; n_actions * N_COMBOS]` twice per decision node
+///   (strategy buffer + action-values buffer, ~21 KB each for 4 actions).
+/// - `Box::new([0.0f32; N_COMBOS])` once per showdown terminal (returned
+///   by `ev_vs_opponent`) and once per fold terminal (`compatible_reach_sum`).
+///
+/// Pre-allocating these scratch buffers in the solver and threading them
+/// through the recursion would be the next performance step.
+///
 /// Note: the scalar river tree stores a placeholder showdown payoff (it
 /// doesn't actually evaluate hand strengths), so its per-iteration work is
 /// strictly less than what a faithful scalar evaluator would do. The

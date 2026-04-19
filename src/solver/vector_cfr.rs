@@ -372,17 +372,18 @@ fn vector_cfr_traverse(
             // Children are visited in order; each visit needs the per-combo
             // reach updated by this player's strategy at that action.
             for a in 0..n_actions {
-                // Build this action's reach vectors.
-                let (new_reach_p0, new_reach_p1) = if player == 0 {
-                    (
-                        scale_reach(reach_p0, &strategy, a, n_actions),
-                        Box::new(*reach_p1),
-                    )
+                // Scale only the acting player's reach. The other player's
+                // reach is unchanged — pass a reference directly rather than
+                // cloning the whole 5 KB array into a new Box.
+                let scaled = if player == 0 {
+                    scale_reach(reach_p0, &strategy, a, n_actions)
                 } else {
-                    (
-                        Box::new(*reach_p0),
-                        scale_reach(reach_p1, &strategy, a, n_actions),
-                    )
+                    scale_reach(reach_p1, &strategy, a, n_actions)
+                };
+                let (child_p0, child_p1): (&[f32; N_COMBOS], &[f32; N_COMBOS]) = if player == 0 {
+                    (&scaled, reach_p1)
+                } else {
+                    (reach_p0, &scaled)
                 };
 
                 let v = vector_cfr_traverse(
@@ -390,8 +391,8 @@ fn vector_cfr_traverse(
                     store,
                     use_cfr_plus,
                     children[a],
-                    &new_reach_p0,
-                    &new_reach_p1,
+                    child_p0,
+                    child_p1,
                     traversing_player,
                 );
 

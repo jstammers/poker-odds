@@ -275,6 +275,15 @@ impl App {
         use crate::solver::exploitability::compute_exploitability;
         use crate::solver::postflop::{PostflopConfig, PostflopTreeBuilder};
         use crate::solver::range::HandRange;
+        use crate::tui::screens::solver_config::Street;
+
+        // Vector CFR supports turn and river only for now. If the user
+        // ticked the vector toggle and we're on one of those streets,
+        // route to the vector solver; otherwise fall through to scalar.
+        if params.use_vector && matches!(params.street, Street::Turn | Street::River) {
+            self.start_vector_solver(params);
+            return;
+        }
 
         let progress_ref = Arc::clone(&self.solver_progress);
 
@@ -413,6 +422,134 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn start_solver(&self, _params: &SolverParams) {
         // Solver not available on wasm
+    }
+
+    /// Run the PIOSolver-style vector CFR solver in a background thread.
+    /// Mirrors [`Self::start_solver`]'s progress-reporting shape so the
+    /// existing results screen works without changes.
+    ///
+    /// The vector solver doesn't currently expose per-iteration game value
+    /// or exploitability — both are follow-ups (best-response routine for
+    /// exploitability; vector iteration value plumbing for live progress).
+    /// For now the progress bar jumps to 100% when `solve` returns and we
+    /// publish aggregated strategies at the end.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_vector_solver(&self, params: &SolverParams) {
+        use crate::solver::action::BetSizingConfig;
+        use crate::solver::cfr::SolverConfig as CfrSolverConfig;
+        use crate::solver::range::HandRange;
+        use crate::solver::vector_api::{solve_vector, VectorSolverConfig};
+
+        let progress_ref = Arc::clone(&self.solver_progress);
+        if let Ok(mut p) = progress_ref.write() {
+            *p = SolverProgress {
+                total_iterations: params.iterations,
+                algorithm: Some(params.algorithm),
+                board: params.board.clone(),
+                pot: params.starting_pot,
+                stack: params.effective_stack,
+                street_name: format!("{} (vector)", params.street.name()),
+                range_oop: params.range_oop.clone(),
+                range_ip: params.range_ip.clone(),
+                ..SolverProgress::default()
+            };
+        }
+
+        let board = params.board.clone();
+        let algorithm = params.algorithm;
+        let iterations = params.iterations;
+        let bet_sizes = params.bet_sizes.clone();
+        let raise_sizes = params.raise_sizes.clone();
+        let starting_pot = params.starting_pot;
+        let effective_stack = params.effective_stack;
+        let max_raises = params.max_raises;
+        let range_oop_str = params.range_oop.clone();
+        let range_ip_str = params.range_ip.clone();
+        let progress_ref2 = Arc::clone(&progress_ref);
+
+        thread::spawn(move || {
+            let range_oop = if range_oop_str.is_empty() {
+                HandRange::full()
+            } else {
+                HandRange::from_str(&range_oop_str).unwrap_or_else(|_| HandRange::full())
+            };
+            let range_ip = if range_ip_str.is_empty() {
+                HandRange::full()
+            } else {
+                HandRange::from_str(&range_ip_str).unwrap_or_else(|_| HandRange::full())
+            };
+
+            let sizing = BetSizingConfig {
+                flop_bets: bet_sizes.clone(),
+                flop_raises: raise_sizes.clone(),
+                turn_bets: bet_sizes.clone(),
+                turn_raises: raise_sizes.clone(),
+                river_bets: bet_sizes.clone(),
+                river_raises: raise_sizes.clone(),
+                max_raises_per_street: max_raises,
+                always_allow_allin: true,
+            };
+
+            let cfg = VectorSolverConfig {
+                board,
+                range_oop,
+                range_ip,
+                starting_pot,
+                effective_stack,
+                bet_config: sizing,
+                cfr_config: CfrSolverConfig {
+                    algorithm,
+                    iterations,
+                    ..CfrSolverConfig::default()
+                },
+            };
+
+            // Vector CFR runs `solve` as a single call — we don't have
+            // per-iteration hooks yet, so publish a "running" snapshot
+            // first, then the completed output.
+            if let Ok(mut p) = progress_ref2.write() {
+                p.iteration = 0;
+            }
+
+            let out = match solve_vector(cfg) {
+                Ok(out) => out,
+                Err(e) => {
+                    // Surface the error by marking done with no data; the
+                    // results screen will show "no strategies to display".
+                    if let Ok(mut p) = progress_ref2.write() {
+                        p.iteration = iterations;
+                        p.done = true;
+                        p.strategies = vec![(format!("error: {e}"), vec![])];
+                    }
+                    return;
+                }
+            };
+
+            // Convert aggregated strategies to the shape the results
+            // screen expects: Vec<(info_set_label, Vec<(action_label, prob)>)>.
+            let mut strategies: Vec<(String, Vec<(String, f32)>)> =
+                Vec::with_capacity(out.strategies.len().min(20));
+            for s in out.strategies.iter().take(20) {
+                let action_probs: Vec<(String, f32)> = s
+                    .actions
+                    .iter()
+                    .zip(s.probs.iter())
+                    .map(|(a, &p)| (format!("{}", a), p))
+                    .collect();
+                strategies.push((s.history_label.clone(), action_probs));
+            }
+
+            if let Ok(mut p) = progress_ref2.write() {
+                p.iteration = iterations;
+                p.done = true;
+                p.game_value = out.game_value;
+                p.num_info_sets = out.num_info_sets;
+                p.num_nodes = out.num_nodes;
+                p.strategies = strategies;
+                // Vector exploitability is a follow-up (best-response
+                // routine). Leave as None.
+            }
+        });
     }
 
     fn render(&mut self, frame: &mut Frame) {

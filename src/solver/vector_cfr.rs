@@ -32,6 +32,7 @@
 //! Σᵢ reach_p0[i] · v_p0[i], the unweighted sum across combos; callers
 //! with unit-weight starting ranges get a direct chip-EV number.
 
+use crate::solver::action::Action;
 use crate::solver::cfr::{CfrAlgorithm, SolverConfig};
 use crate::solver::showdown::{ShowdownRanker, N_COMBOS};
 use crate::solver::vector_info_set::VectorInfoSetStore;
@@ -56,11 +57,17 @@ pub type VectorNodeIndex = u32;
 /// apply at the vector level.
 #[derive(Clone, Debug)]
 pub enum VectorNode {
-    /// Decision node. `children[a]` is the sub-tree reached by action `a`;
+    /// Decision node. `actions[a]` is the action reached by index `a`;
+    /// `children[a]` is the sub-tree taken when that action is chosen;
     /// `info_set_idx` indexes the [`VectorInfoSetStore`], which holds 1326
     /// regret/strategy-sum slots per action here.
+    ///
+    /// `actions.len() == children.len()` and equals `n_actions` for the info
+    /// set. Carrying the action labels here lets downstream strategy output
+    /// stay aligned without a separate side-channel.
     Decision {
         player: u8,
+        actions: Vec<Action>,
         children: Vec<VectorNodeIndex>,
         info_set_idx: u32,
     },
@@ -217,6 +224,7 @@ fn vector_cfr_traverse(
             player,
             children,
             info_set_idx,
+            ..
         } => {
             let player = *player;
             let info_set_idx = *info_set_idx;
@@ -358,6 +366,7 @@ mod tests {
             },
             VectorNode::Decision {
                 player: 0,
+                actions: vec![Action::Check, Action::Fold],
                 children: vec![showdown_idx, fold_idx],
                 info_set_idx: 0,
             },
@@ -466,6 +475,7 @@ mod tests {
             },
             VectorNode::Decision {
                 player: 0,
+                actions: vec![Action::Check, Action::Fold],
                 children: vec![0, 1],
                 info_set_idx: 0,
             },

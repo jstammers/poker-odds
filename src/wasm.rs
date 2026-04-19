@@ -11,6 +11,10 @@ use crate::cards::Card;
 use crate::eval::HandCategory;
 use crate::game::{GameState, GameVariant};
 use crate::sim::{run_simulation, SimConfig};
+use crate::solver::action::BetSizingConfig;
+use crate::solver::cfr::{CfrAlgorithm, SolverConfig};
+use crate::solver::range::HandRange;
+use crate::solver::vector_api::{solve_vector, VectorSolverConfig};
 
 // ── Panic hook ───────────────────────────────────────────────────────────────
 
@@ -113,6 +117,38 @@ pub fn validate_card(s: &str) -> bool {
     Card::from_str(s).is_ok()
 }
 
+// ── Vector CFR solver ────────────────────────────────────────────────────────
+
+/// Run the PIOSolver-style vector CFR on a postflop subgame.
+///
+/// **Input JSON:**
+/// ```json
+/// {
+///   "board": ["Ah", "Kd", "5c"],
+///   "range_oop": "22+,A2s+,KTs+",
+///   "range_ip":  "22+,ATs+,KJs+",
+///   "starting_pot": 10.0,
+///   "effective_stack": 100.0,
+///   "iterations": 500,
+///   "algorithm": "cfr_plus",
+///   "bet_config": { ...optional... }
+/// }
+/// ```
+///
+/// Board length must be 3 (flop), 4 (turn) or 5 (river). Ranges accept the
+/// same notation as [`HandRange::from_str`] (e.g. `"AA,KK,AKs"`); use
+/// `"all"` as a shortcut for the full 1326-combo range.
+///
+/// **Output JSON:** [`VectorSolveOutput`] on success, `{ "error": "..." }`
+/// on failure.
+#[wasm_bindgen]
+pub fn solve_postflop(input_json: &str) -> String {
+    match run_solve_postflop(input_json) {
+        Ok(out) => serde_json::to_string(&out).unwrap_or_else(|e| error_json(&e.to_string())),
+        Err(e) => error_json(&e),
+    }
+}
+
 // ── Internals ─────────────────────────────────────────────────────────────────
 
 fn run_calculate(input_json: &str) -> Result<SimOutput, String> {
@@ -194,4 +230,190 @@ fn error_json(msg: &str) -> String {
         error: msg.to_string(),
     })
     .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+}
+
+// ── Vector solver internals ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SolveInput {
+    board: Vec<String>,
+    range_oop: String,
+    range_ip: String,
+    starting_pot: f32,
+    effective_stack: f32,
+    #[serde(default = "default_iterations")]
+    iterations: u32,
+    #[serde(default)]
+    algorithm: AlgorithmTag,
+    #[serde(default)]
+    bet_config: Option<BetConfigInput>,
+    #[serde(default)]
+    ante: Option<f32>,
+}
+
+fn default_iterations() -> u32 {
+    200
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum AlgorithmTag {
+    #[default]
+    CfrPlus,
+    Dcfr,
+}
+
+impl From<AlgorithmTag> for CfrAlgorithm {
+    fn from(t: AlgorithmTag) -> Self {
+        match t {
+            AlgorithmTag::CfrPlus => CfrAlgorithm::CfrPlus,
+            AlgorithmTag::Dcfr => CfrAlgorithm::Dcfr,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct BetConfigInput {
+    #[serde(default)]
+    flop_bets: Option<Vec<f64>>,
+    #[serde(default)]
+    flop_raises: Option<Vec<f64>>,
+    #[serde(default)]
+    turn_bets: Option<Vec<f64>>,
+    #[serde(default)]
+    turn_raises: Option<Vec<f64>>,
+    #[serde(default)]
+    river_bets: Option<Vec<f64>>,
+    #[serde(default)]
+    river_raises: Option<Vec<f64>>,
+    #[serde(default)]
+    always_allow_allin: Option<bool>,
+    #[serde(default)]
+    max_raises_per_street: Option<u8>,
+}
+
+impl BetConfigInput {
+    fn into_config(self) -> BetSizingConfig {
+        let mut out = BetSizingConfig::default();
+        if let Some(v) = self.flop_bets {
+            out.flop_bets = v;
+        }
+        if let Some(v) = self.flop_raises {
+            out.flop_raises = v;
+        }
+        if let Some(v) = self.turn_bets {
+            out.turn_bets = v;
+        }
+        if let Some(v) = self.turn_raises {
+            out.turn_raises = v;
+        }
+        if let Some(v) = self.river_bets {
+            out.river_bets = v;
+        }
+        if let Some(v) = self.river_raises {
+            out.river_raises = v;
+        }
+        if let Some(v) = self.always_allow_allin {
+            out.always_allow_allin = v;
+        }
+        if let Some(v) = self.max_raises_per_street {
+            out.max_raises_per_street = v;
+        }
+        out
+    }
+}
+
+#[derive(Serialize)]
+struct InfoSetOut {
+    info_set_idx: u32,
+    player: u8,
+    actions: Vec<String>,
+    probs: Vec<f32>,
+    history_label: String,
+}
+
+#[derive(Serialize)]
+struct SolveOutput {
+    game_value: f64,
+    exploitability: f64,
+    num_info_sets: u32,
+    num_nodes: u32,
+    strategies: Vec<InfoSetOut>,
+}
+
+fn parse_range(s: &str) -> Result<HandRange, String> {
+    let trimmed = s.trim();
+    if trimmed.eq_ignore_ascii_case("all") || trimmed.is_empty() {
+        return Ok(HandRange::full());
+    }
+    HandRange::from_str(trimmed).map_err(|e| format!("invalid range '{}': {}", s, e))
+}
+
+fn run_solve_postflop(input_json: &str) -> Result<SolveOutput, String> {
+    let input: SolveInput =
+        serde_json::from_str(input_json).map_err(|e| format!("Invalid JSON: {}", e))?;
+
+    let board: Vec<Card> = input
+        .board
+        .iter()
+        .map(|s| Card::from_str(s).map_err(|e| format!("Invalid card '{}': {}", s, e)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !matches!(board.len(), 3..=5) {
+        return Err(format!(
+            "unsupported board length {}: expected 3 (flop), 4 (turn) or 5 (river)",
+            board.len()
+        ));
+    }
+
+    let range_oop = parse_range(&input.range_oop)?;
+    let range_ip = parse_range(&input.range_ip)?;
+
+    let bet_config = input
+        .bet_config
+        .map(|b| b.into_config())
+        .unwrap_or_default();
+
+    let cfr_config = SolverConfig {
+        algorithm: input.algorithm.into(),
+        iterations: input.iterations.max(1),
+        ..Default::default()
+    };
+
+    let ante = input
+        .ante
+        .filter(|&a| a > 0.0)
+        .unwrap_or(input.starting_pot / 2.0)
+        .max(1.0);
+
+    let cfg = VectorSolverConfig {
+        board,
+        range_oop,
+        range_ip,
+        starting_pot: input.starting_pot,
+        effective_stack: input.effective_stack,
+        bet_config,
+        cfr_config,
+        ante,
+    };
+
+    let out = solve_vector(cfg).map_err(|e| e.to_string())?;
+
+    Ok(SolveOutput {
+        game_value: out.game_value,
+        exploitability: out.exploitability,
+        num_info_sets: out.num_info_sets,
+        num_nodes: out.num_nodes,
+        strategies: out
+            .strategies
+            .into_iter()
+            .map(|s| InfoSetOut {
+                info_set_idx: s.info_set_idx,
+                player: s.player,
+                actions: s.actions.iter().map(|a| a.to_string()).collect(),
+                probs: s.probs,
+                history_label: s.history_label,
+            })
+            .collect(),
+    })
 }

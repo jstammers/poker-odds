@@ -603,6 +603,95 @@ fn bench_river_scalar_vs_vector(c: &mut Criterion) {
     group.finish();
 }
 
+/// Full-range fair comparison: vector CFR carries ~1326 combos through
+/// every node per iteration, so the matched workload for scalar CFR is
+/// to traverse the same tree `N_COMBOS` times (one per combo).
+///
+/// The bench measures total time for:
+/// - **scalar_fullrange**: `iters * N_COMBOS` scalar CFR+ iterations on the
+///   same river tree — a per-combo traversal budget equivalent to the
+///   vector solver's per-combo work at the root.
+/// - **vector**: `iters` vector CFR+ iterations on the same scenario with
+///   unit-weight ranges for both players.
+///
+/// With this scaling, the comparison reflects the real claim: vector CFR
+/// pays a per-node vector cost but eliminates the per-combo outer loop.
+/// Toy bet configs and small `iters` keep the bench tractable, since
+/// `iters * N_COMBOS` grows very fast on deeper trees.
+fn bench_river_full_range_vs_vector(c: &mut Criterion) {
+    use poker_odds::solver::showdown::N_COMBOS;
+    use poker_odds::solver::vector_cfr::VectorCfrSolver;
+    use poker_odds::solver::vector_postflop::build_vector_river_tree;
+
+    let board = [
+        Card::new(Rank::Ace, Suit::Spades),
+        Card::new(Rank::King, Suit::Hearts),
+        Card::new(Rank::Queen, Suit::Diamonds),
+        Card::new(Rank::Seven, Suit::Clubs),
+        Card::new(Rank::Two, Suit::Spades),
+    ];
+    // Keep action sizing minimal — the scalar arm runs `iters * N_COMBOS`
+    // traversals, which blows up on deeper trees.
+    let bet_config = BetSizingConfig {
+        river_bets: vec![1.0],
+        river_raises: vec![],
+        always_allow_allin: false,
+        max_raises_per_street: 0,
+        ..Default::default()
+    };
+
+    let mut group = c.benchmark_group("river_full_range_vs_vector");
+    group.sample_size(10);
+
+    for &iters in &[1u32, 5] {
+        let scalar_iters = iters * N_COMBOS as u32;
+        group.bench_with_input(
+            BenchmarkId::new("scalar_fullrange", iters),
+            &scalar_iters,
+            |b, &scalar_iters| {
+                b.iter_batched(
+                    || {
+                        let tree = build_river_tree(board, 100.0, 200.0, bet_config.clone());
+                        let config = SolverConfig {
+                            algorithm: CfrAlgorithm::CfrPlus,
+                            iterations: scalar_iters,
+                            ..Default::default()
+                        };
+                        CfrSolver::new(tree, config)
+                    },
+                    |mut solver| black_box(solver.solve()),
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+
+        group.bench_with_input(BenchmarkId::new("vector", iters), &iters, |b, &iters| {
+            b.iter_batched(
+                || {
+                    let tree = build_vector_river_tree(board, 100.0, 200.0, bet_config.clone());
+                    let mut r0 = Box::new([0.0f32; N_COMBOS]);
+                    let mut r1 = Box::new([0.0f32; N_COMBOS]);
+                    for i in 0..N_COMBOS {
+                        if !tree.rankers[0].is_blocked(i as u16) {
+                            r0[i] = 1.0;
+                            r1[i] = 1.0;
+                        }
+                    }
+                    let config = SolverConfig {
+                        algorithm: CfrAlgorithm::CfrPlus,
+                        iterations: iters,
+                        ..Default::default()
+                    };
+                    VectorCfrSolver::new(tree, r0, r1, config)
+                },
+                |mut solver| black_box(solver.solve()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_kuhn_cfr_plus,
@@ -619,5 +708,6 @@ criterion_group!(
     bench_showdown,
     bench_vector_info_set,
     bench_river_scalar_vs_vector,
+    bench_river_full_range_vs_vector,
 );
 criterion_main!(benches);

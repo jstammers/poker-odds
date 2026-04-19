@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 /// Below this total flat-array length, the bulk DCFR discount operations run
@@ -6,7 +7,9 @@ use rayon::prelude::*;
 /// are much larger than L3 cache. On a 16-core box the empirical crossover
 /// lives near 1–2M f32 elements; this threshold is chosen to keep Kuhn, Leduc,
 /// and typical river postflop trees on the serial path while still firing on
-/// million-info-set solves.
+/// million-info-set solves. On wasm32 the threshold is ignored: the browser
+/// runs in a single worker thread, so the parallel branch is never taken.
+#[cfg(not(target_arch = "wasm32"))]
 const PARALLEL_DISCOUNT_THRESHOLD: usize = 2_000_000;
 
 /// Storage for per-information-set cumulative regrets and strategy sums.
@@ -204,20 +207,34 @@ impl InfoSetStore {
                 *r *= negative_discount;
             }
         };
-        if self.regrets.len() >= PARALLEL_DISCOUNT_THRESHOLD {
-            self.regrets.par_iter_mut().for_each(apply);
-        } else {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.regrets.len() >= PARALLEL_DISCOUNT_THRESHOLD {
+                self.regrets.par_iter_mut().for_each(apply);
+            } else {
+                self.regrets.iter_mut().for_each(apply);
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
             self.regrets.iter_mut().for_each(apply);
         }
     }
 
     /// DCFR: apply a discount factor to every strategy sum in one pass.
     pub fn discount_strategy_sum_all(&mut self, discount: f32) {
-        if self.strategy_sum.len() >= PARALLEL_DISCOUNT_THRESHOLD {
-            self.strategy_sum
-                .par_iter_mut()
-                .for_each(|s| *s *= discount);
-        } else {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.strategy_sum.len() >= PARALLEL_DISCOUNT_THRESHOLD {
+                self.strategy_sum
+                    .par_iter_mut()
+                    .for_each(|s| *s *= discount);
+            } else {
+                self.strategy_sum.iter_mut().for_each(|s| *s *= discount);
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
             self.strategy_sum.iter_mut().for_each(|s| *s *= discount);
         }
     }

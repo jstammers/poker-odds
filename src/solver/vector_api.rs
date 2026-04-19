@@ -14,9 +14,14 @@
 //! - Turn subgame (4-card board) — uses
 //!   [`crate::solver::vector_postflop::build_vector_turn_tree`], which
 //!   enumerates the 48 possible river cards as chance children.
+//! - Flop subgame (3-card board) — uses
+//!   [`crate::solver::vector_postflop::build_vector_flop_tree`], which
+//!   enumerates the 49 possible turn cards and 48 possible river cards
+//!   under two nested chance layers. Expect memory/time costs that grow
+//!   with bet-config fanout; keep bet sizings lean for flop solves.
 //!
-//! Flop and earlier streets need additional chance-node layers and aren't
-//! yet covered by the vector builders. Callers receive
+//! Preflop (2-card hole selection at the root, no board) is not yet
+//! covered by the vector builders. Callers receive
 //! [`VectorSolveError::UnsupportedStreet`] in that case.
 //!
 //! ## Strategy aggregation
@@ -34,14 +39,17 @@ use crate::solver::range::HandRange;
 use crate::solver::showdown::N_COMBOS;
 use crate::solver::vector_cfr::{VectorCfrSolver, VectorNode};
 use crate::solver::vector_exploitability::compute_vector_exploitability;
-use crate::solver::vector_postflop::{build_vector_river_tree, build_vector_turn_tree};
+use crate::solver::vector_postflop::{
+    build_vector_flop_tree, build_vector_river_tree, build_vector_turn_tree,
+};
 
 /// Errors from the vector-CFR convenience API.
 #[derive(Debug, thiserror::Error)]
 pub enum VectorSolveError {
-    /// The board size isn't yet supported by the vector builder. Only river
-    /// (5 cards) and turn (4 cards) are wired up.
-    #[error("unsupported street: vector CFR currently supports turn (4) and river (5) boards, got {0} cards")]
+    /// The board size isn't yet supported by the vector builder. Flop
+    /// (3 cards), turn (4 cards) and river (5 cards) are wired up;
+    /// preflop (0 cards) is not.
+    #[error("unsupported street: vector CFR currently supports flop (3), turn (4) and river (5) boards, got {0} cards")]
     UnsupportedStreet(usize),
 }
 
@@ -119,6 +127,15 @@ pub fn solve_vector(cfg: VectorSolverConfig) -> Result<VectorSolverOutput, Vecto
                 cfg.bet_config.clone(),
             )
         }
+        3 => {
+            let board: [Card; 3] = [cfg.board[0], cfg.board[1], cfg.board[2]];
+            build_vector_flop_tree(
+                board,
+                cfg.starting_pot,
+                cfg.effective_stack,
+                cfg.bet_config.clone(),
+            )
+        }
         n => return Err(VectorSolveError::UnsupportedStreet(n)),
     };
 
@@ -139,7 +156,7 @@ pub fn solve_vector(cfg: VectorSolverConfig) -> Result<VectorSolverOutput, Vecto
 
     let exploitability = compute_vector_exploitability(
         &solver.tree,
-        &solver.store,
+        &solver.store(),
         &solver.starting_reach[0],
         &solver.starting_reach[1],
         ante,
@@ -238,7 +255,7 @@ fn aggregate_strategy(solver: &VectorCfrSolver) -> Vec<VectorInfoSetStrategy> {
         }
         let mut strat_buf = vec![0.0f32; n_actions * N_COMBOS];
         solver
-            .store
+            .store()
             .average_strategy_into(idx as u32, &mut strat_buf);
 
         // Sum across combos. Layout is combo-major: strat_buf[combo *
@@ -413,13 +430,9 @@ mod tests {
     }
 
     #[test]
-    fn solve_vector_rejects_flop() {
+    fn solve_vector_rejects_preflop() {
         let cfg = VectorSolverConfig {
-            board: vec![
-                Card::new(Rank::Ace, Suit::Spades),
-                Card::new(Rank::King, Suit::Hearts),
-                Card::new(Rank::Queen, Suit::Diamonds),
-            ],
+            board: vec![],
             range_oop: HandRange::full(),
             range_ip: HandRange::full(),
             starting_pot: 100.0,
@@ -429,6 +442,47 @@ mod tests {
             ante: 0.0,
         };
         let err = solve_vector(cfg).unwrap_err();
-        assert!(matches!(err, VectorSolveError::UnsupportedStreet(3)));
+        assert!(matches!(err, VectorSolveError::UnsupportedStreet(0)));
+    }
+
+    #[test]
+    fn solve_vector_flop_builds_tree() {
+        // Minimal config: 1 bet per street, no raises. Runs a tiny number
+        // of iterations to keep the test fast but still exercise the flop
+        // builder end-to-end.
+        let cfg = VectorSolverConfig {
+            board: vec![
+                Card::new(Rank::Ace, Suit::Spades),
+                Card::new(Rank::King, Suit::Hearts),
+                Card::new(Rank::Queen, Suit::Diamonds),
+            ],
+            range_oop: HandRange::full(),
+            range_ip: HandRange::full(),
+            starting_pot: 20.0,
+            effective_stack: 200.0,
+            bet_config: BetSizingConfig {
+                flop_bets: vec![1.0],
+                flop_raises: vec![],
+                turn_bets: vec![1.0],
+                turn_raises: vec![],
+                river_bets: vec![1.0],
+                river_raises: vec![],
+                always_allow_allin: false,
+                max_raises_per_street: 0,
+            },
+            cfr_config: SolverConfig {
+                algorithm: CfrAlgorithm::CfrPlus,
+                iterations: 1,
+                ..Default::default()
+            },
+            ante: 0.0,
+        };
+        let out = solve_vector(cfg).expect("flop solve should succeed");
+        assert!(out.game_value.is_finite());
+        assert!(
+            out.num_info_sets > 10,
+            "flop tree should have many info sets, got {}",
+            out.num_info_sets
+        );
     }
 }

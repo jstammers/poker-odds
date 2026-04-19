@@ -37,11 +37,32 @@
 //! analogue of the scalar solver's game-value output. Currently this is
 //! Σᵢ reach_p0[i] · v_p0[i], the unweighted sum across combos; callers
 //! with unit-weight starting ranges get a direct chip-EV number.
+//!
+//! ## Parallelism
+//!
+//! On non-WASM targets, chance-node children are traversed in parallel via
+//! [`rayon`]. Info-set indices are disjoint across chance children (the
+//! tree builders inject a per-card history separator, so distinct chance
+//! children never share an info-set), so writes to
+//! [`VectorInfoSetStore`] happen at disjoint slots. The store is still
+//! wrapped in a [`std::sync::Mutex`] to satisfy the borrow checker;
+//! contention is low in practice because each decision node only locks
+//! briefly to read its current strategy and (for the traversing player)
+//! commit the regret/strategy update.
+//!
+//! WASM builds keep the sequential traversal — the browser runs each
+//! solve in a single Web Worker thread, so the lock is never contended
+//! and rayon is excluded to keep the bundle small.
+
+use std::sync::Mutex;
 
 use crate::solver::action::Action;
 use crate::solver::cfr::{CfrAlgorithm, SolverConfig};
 use crate::solver::showdown::{ShowdownRanker, N_COMBOS};
 use crate::solver::vector_info_set::VectorInfoSetStore;
+
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 
 /// Per-combo coefficient of 1.0 used as the "opponent reach" factor in
 /// vector-CFR regret updates. Terminal evaluators integrate opponent reach
@@ -122,9 +143,13 @@ pub struct VectorGameTree {
 
 /// Vector CFR solver. Analogous to [`crate::solver::cfr::CfrSolver`] but
 /// keeps per-combo regrets and strategy sums.
+///
+/// The store is wrapped in a [`Mutex`] so the traversal can parallelise
+/// chance-node children across rayon worker threads. Most read paths use
+/// [`VectorCfrSolver::store`] to acquire a guarded reference.
 pub struct VectorCfrSolver {
     pub tree: VectorGameTree,
-    pub store: VectorInfoSetStore,
+    pub store: Mutex<VectorInfoSetStore>,
     pub config: SolverConfig,
     /// Per-combo starting reach for each player (e.g. the normalised opening
     /// range). Carried down the tree along with the strategy-scaled updates.
@@ -143,10 +168,17 @@ impl VectorCfrSolver {
         let store = VectorInfoSetStore::new(&tree.actions_per_info_set);
         Self {
             tree,
-            store,
+            store: Mutex::new(store),
             config,
             starting_reach: [starting_reach_p0, starting_reach_p1],
         }
+    }
+
+    /// Acquire a lock on the info-set store. Read-only callers (strategy
+    /// readback, exploitability) should hold the guard only as long as
+    /// needed.
+    pub fn store(&self) -> std::sync::MutexGuard<'_, VectorInfoSetStore> {
+        self.store.lock().expect("vector store mutex poisoned")
     }
 
     /// Run one CFR iteration (two traversals, one per traversing player).
@@ -160,7 +192,7 @@ impl VectorCfrSolver {
 
         let v0 = vector_cfr_traverse(
             &self.tree,
-            &mut self.store,
+            &self.store,
             use_cfr_plus,
             self.tree.root,
             &reach_p0,
@@ -169,7 +201,7 @@ impl VectorCfrSolver {
         );
         let _v1 = vector_cfr_traverse(
             &self.tree,
-            &mut self.store,
+            &self.store,
             use_cfr_plus,
             self.tree.root,
             &reach_p0,
@@ -201,9 +233,16 @@ impl VectorCfrSolver {
 /// Mirrors the scalar traversal's recursion structure. The `_use_cfr_plus`
 /// flag is threaded through as a single bool so the traversal doesn't have
 /// to re-read it from the solver each call.
+///
+/// The store is passed as `&Mutex<VectorInfoSetStore>` so chance-node
+/// children can be traversed in parallel on non-WASM targets. The lock is
+/// only held briefly at decision nodes — once to read current strategy,
+/// once more (at the traversing player's nodes) to commit the regret and
+/// strategy-sum updates. Info-set indices are disjoint across chance
+/// children by construction, so contention is low in practice.
 fn vector_cfr_traverse(
     tree: &VectorGameTree,
-    store: &mut VectorInfoSetStore,
+    store: &Mutex<VectorInfoSetStore>,
     use_cfr_plus: bool,
     node_idx: VectorNodeIndex,
     reach_p0: &[f32; N_COMBOS],
@@ -256,20 +295,50 @@ fn vector_cfr_traverse(
             // For each dealt card `c`, zero out reach for combos that
             // contain `c` (they can't be held after the deal) before
             // recursing into the child subtree for that card.
+            //
+            // On non-WASM targets, children are traversed in parallel via
+            // rayon. The traversals are independent (disjoint info-set
+            // writes) so contention on the store mutex is low.
             let weight = 1.0 / children.len() as f32;
+
+            #[cfg(not(target_arch = "wasm32"))]
+            let child_evs: Vec<Box<[f32; N_COMBOS]>> = children
+                .par_iter()
+                .map(|&(card, child)| {
+                    let new_reach_p0 = zero_reach_blocked_by_card(reach_p0, card);
+                    let new_reach_p1 = zero_reach_blocked_by_card(reach_p1, card);
+                    vector_cfr_traverse(
+                        tree,
+                        store,
+                        use_cfr_plus,
+                        child,
+                        &new_reach_p0,
+                        &new_reach_p1,
+                        traversing_player,
+                    )
+                })
+                .collect();
+
+            #[cfg(target_arch = "wasm32")]
+            let child_evs: Vec<Box<[f32; N_COMBOS]>> = children
+                .iter()
+                .map(|&(card, child)| {
+                    let new_reach_p0 = zero_reach_blocked_by_card(reach_p0, card);
+                    let new_reach_p1 = zero_reach_blocked_by_card(reach_p1, card);
+                    vector_cfr_traverse(
+                        tree,
+                        store,
+                        use_cfr_plus,
+                        child,
+                        &new_reach_p0,
+                        &new_reach_p1,
+                        traversing_player,
+                    )
+                })
+                .collect();
+
             let mut ev = Box::new([0.0f32; N_COMBOS]);
-            for &(card, child) in children {
-                let new_reach_p0 = zero_reach_blocked_by_card(reach_p0, card);
-                let new_reach_p1 = zero_reach_blocked_by_card(reach_p1, card);
-                let child_v = vector_cfr_traverse(
-                    tree,
-                    store,
-                    use_cfr_plus,
-                    child,
-                    &new_reach_p0,
-                    &new_reach_p1,
-                    traversing_player,
-                );
+            for child_v in &child_evs {
                 for (slot, v) in ev.iter_mut().zip(child_v.iter()) {
                     *slot += weight * *v;
                 }
@@ -287,8 +356,13 @@ fn vector_cfr_traverse(
             let n_actions = children.len();
 
             // Regret-match the current strategy for every combo in one shot.
+            // Acquire the store lock only long enough to read the regret
+            // slab — the recursion into children must not hold the lock.
             let mut strategy = vec![0.0f32; n_actions * N_COMBOS];
-            store.current_strategy_into(info_set_idx, &mut strategy);
+            {
+                let guard = store.lock().expect("vector store mutex poisoned");
+                guard.current_strategy_into(info_set_idx, &mut strategy);
+            }
 
             // Per-action per-combo values from recursion.
             let mut action_values = vec![0.0f32; n_actions * N_COMBOS];
@@ -349,8 +423,8 @@ fn vector_cfr_traverse(
             // per-combo reach.
             if player == traversing_player {
                 let my_reach = if player == 0 { reach_p0 } else { reach_p1 };
-
-                store.update_regrets_and_strategy(
+                let mut guard = store.lock().expect("vector store mutex poisoned");
+                guard.update_regrets_and_strategy(
                     info_set_idx,
                     &action_values,
                     node_value.as_ref(),
@@ -483,12 +557,12 @@ mod tests {
     fn showdown_terminal_returns_scaled_ev() {
         let tree = tiny_tree(10.0, 0.0);
         let store_input: Vec<u8> = tree.actions_per_info_set.clone();
-        let mut store = VectorInfoSetStore::new(&store_input);
+        let store = Mutex::new(VectorInfoSetStore::new(&store_input));
         let r0 = unit_reach(&tree.rankers[0]);
         let r1 = unit_reach(&tree.rankers[0]);
 
         // Call the showdown node directly.
-        let v = vector_cfr_traverse(&tree, &mut store, true, 0, &r0, &r1, 0);
+        let v = vector_cfr_traverse(&tree, &store, true, 0, &r0, &r1, 0);
 
         // Must match ranker.ev_vs_opponent(r1) * 10.0 on every unblocked combo.
         let ref_ev = tree.rankers[0].ev_vs_opponent(&r1);
@@ -506,14 +580,14 @@ mod tests {
     fn fold_terminal_sign_matches_winner() {
         // P1 wins fold of pot 4.0.
         let tree = tiny_tree(0.0, 4.0);
-        let mut store = VectorInfoSetStore::new(&tree.actions_per_info_set);
+        let store = Mutex::new(VectorInfoSetStore::new(&tree.actions_per_info_set));
         let r0 = unit_reach(&tree.rankers[0]);
         let r1 = unit_reach(&tree.rankers[0]);
 
         // Traversing = P0 (the loser): value should be -4 * compat_sum.
-        let v0 = vector_cfr_traverse(&tree, &mut store, true, 1, &r0, &r1, 0);
+        let v0 = vector_cfr_traverse(&tree, &store, true, 1, &r0, &r1, 0);
         // Traversing = P1 (the winner): value should be +4 * compat_sum.
-        let v1 = vector_cfr_traverse(&tree, &mut store, true, 1, &r0, &r1, 1);
+        let v1 = vector_cfr_traverse(&tree, &store, true, 1, &r0, &r1, 1);
 
         for i in 0..N_COMBOS {
             if tree.rankers[0].is_blocked(i as u16) {
@@ -600,9 +674,9 @@ mod tests {
             actions_per_info_set: vec![],
             rankers: vec![ranker],
         };
-        let mut store = VectorInfoSetStore::new(&[]);
+        let store = Mutex::new(VectorInfoSetStore::new(&[]));
 
-        let v = vector_cfr_traverse(&tree, &mut store, true, 2, &r0, &r1, 0);
+        let v = vector_cfr_traverse(&tree, &store, true, 2, &r0, &r1, 0);
 
         // Independent reference computation: for each child, zero combos
         // blocked by its dealt card, compute ev, then average.
@@ -669,15 +743,16 @@ mod tests {
             actions_per_info_set: vec![2],
             rankers: vec![ranker],
         };
-        let mut store = VectorInfoSetStore::new(&tree.actions_per_info_set);
+        let store = Mutex::new(VectorInfoSetStore::new(&tree.actions_per_info_set));
 
         // Uniform start → each action is 0.5. Node value for combo aa:
         // 0.5 * (+5) + 0.5 * (-2) = 1.5.
         // Regret for showdown action = +5 - 1.5 = +3.5 > 0.
         // Regret for fold action   = -2 - 1.5 = -3.5 (clipped to 0 by CFR+).
-        let _ = vector_cfr_traverse(&tree, &mut store, true, 2, &r0, &r1, 0);
+        let _ = vector_cfr_traverse(&tree, &store, true, 2, &r0, &r1, 0);
 
         // After update, regrets at combo aa are [3.5, 0.0]. Read them back.
+        let store = store.into_inner().unwrap();
         let regrets = store.regrets_of(0);
         let base = aa * 2;
         assert!(

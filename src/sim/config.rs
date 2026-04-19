@@ -27,20 +27,19 @@ impl Default for SimConfig {
 }
 
 impl SimConfig {
+    #[cfg(target_arch = "wasm32")]
     pub fn effective_threads(&self) -> usize {
-        #[cfg(target_arch = "wasm32")]
-        {
-            return 1;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if self.threads == 0 {
-                std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(4)
-            } else {
-                self.threads
-            }
+        1
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn effective_threads(&self) -> usize {
+        if self.threads == 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        } else {
+            self.threads
         }
     }
 }

@@ -583,7 +583,7 @@ fn bench_river_scalar_vs_vector(c: &mut Criterion) {
                     let mut r0 = Box::new([0.0f32; N_COMBOS]);
                     let mut r1 = Box::new([0.0f32; N_COMBOS]);
                     for i in 0..N_COMBOS {
-                        if !tree.ranker.is_blocked(i as u16) {
+                        if !tree.rankers[0].is_blocked(i as u16) {
                             r0[i] = 1.0;
                             r1[i] = 1.0;
                         }

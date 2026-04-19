@@ -17,8 +17,10 @@
 //!   `Terminal { payoff_p0 }`. The scalar river tree stores a placeholder
 //!   payoff at showdown nodes; the vector tree carries `half_pot` and the
 //!   solver evaluates per-combo at runtime.
-//! - **No chance nodes.** River subgames only — turn/river deals on earlier
-//!   streets need additional handling and aren't covered here.
+//! - **Chance nodes for next-street deals.** `build_vector_turn_tree`
+//!   adds a chance node dealing the river card, with a per-river-card
+//!   [`ShowdownRanker`] stored in `VectorGameTree::rankers`. The river-only
+//!   builder keeps a single ranker in that vec.
 
 use std::collections::HashMap;
 
@@ -59,7 +61,7 @@ pub fn build_vector_river_tree(
         nodes: builder.nodes,
         root,
         actions_per_info_set: builder.actions_per_info_set,
-        ranker: ShowdownRanker::new(&board),
+        rankers: vec![ShowdownRanker::new(&board)],
     }
 }
 
@@ -264,7 +266,324 @@ impl VectorRiverBuilder {
             state.pot_contributions
         );
         let half_pot = state.pot_contributions[0];
-        self.push_node(VectorNode::Showdown { half_pot })
+        self.push_node(VectorNode::Showdown {
+            half_pot,
+            ranker_idx: 0,
+        })
+    }
+}
+
+/// Build a vector-form game tree for a turn subgame: both players act on the
+/// turn, then a chance node deals the river card, then both players act on
+/// the river, then terminals.
+///
+/// `turn_board` is the 4-card board at the start of turn action (flop +
+/// turn). The builder enumerates the 48 remaining river cards as chance
+/// children and builds a full river action subtree under each. Each river
+/// subtree shares the same info-set structure but terminates in a showdown
+/// that references a river-specific [`ShowdownRanker`] in
+/// [`VectorGameTree::rankers`].
+pub fn build_vector_turn_tree(
+    turn_board: [Card; 4],
+    starting_pot: f32,
+    effective_stack: f32,
+    bet_config: BetSizingConfig,
+) -> VectorGameTree {
+    // Pre-compute one ranker per possible river card (48 of them).
+    let known: [bool; 52] = {
+        let mut k = [false; 52];
+        for c in turn_board.iter() {
+            k[c.index() as usize] = true;
+        }
+        k
+    };
+    let mut rankers: Vec<ShowdownRanker> = Vec::with_capacity(48);
+    let mut river_card_ranker_idx: [Option<u16>; 52] = [None; 52];
+    for card_idx in 0..52u8 {
+        if known[card_idx as usize] {
+            continue;
+        }
+        let final_board = [
+            turn_board[0],
+            turn_board[1],
+            turn_board[2],
+            turn_board[3],
+            Card::from_index(card_idx),
+        ];
+        river_card_ranker_idx[card_idx as usize] = Some(rankers.len() as u16);
+        rankers.push(ShowdownRanker::new(&final_board));
+    }
+
+    let mut builder = VectorTurnBuilder {
+        nodes: Vec::new(),
+        info_set_map: HashMap::new(),
+        next_info_set_idx: 0,
+        actions_per_info_set: Vec::new(),
+        bet_config,
+        river_card_ranker_idx,
+    };
+
+    let initial_contrib = starting_pot / 2.0;
+    let state = TurnBuildState {
+        pot_contributions: [initial_contrib, initial_contrib],
+        stacks: [effective_stack, effective_stack],
+        action_history: Vec::new(),
+        raises_this_street: 0,
+        street: 0, // 0 = turn, 1 = river
+        ranker_idx: 0,
+    };
+
+    let root = builder.build_action_node(0, &state);
+
+    VectorGameTree {
+        nodes: builder.nodes,
+        root,
+        actions_per_info_set: builder.actions_per_info_set,
+        rankers,
+    }
+}
+
+struct VectorTurnBuilder {
+    nodes: Vec<VectorNode>,
+    info_set_map: HashMap<InfoSetKey, u32>,
+    next_info_set_idx: u32,
+    actions_per_info_set: Vec<u8>,
+    bet_config: BetSizingConfig,
+    /// For each card index 0..52, the ranker index for the final board formed
+    /// by that card being dealt as the river. `None` for cards already on the
+    /// turn board (blocked).
+    river_card_ranker_idx: [Option<u16>; 52],
+}
+
+/// Like [`BuildState`] but tracks the street (0 = turn, 1 = river) so we
+/// know whether a street-ending action transitions to a chance node (deal
+/// river) or to a showdown. On the river, `ranker_idx` points at the
+/// [`ShowdownRanker`] for the current final board; it's meaningless on the
+/// turn and stays at the default (0).
+#[derive(Clone, Debug)]
+struct TurnBuildState {
+    pot_contributions: [f32; 2],
+    stacks: [f32; 2],
+    action_history: Vec<u8>,
+    raises_this_street: u8,
+    street: u8,
+    ranker_idx: u16,
+}
+
+impl VectorTurnBuilder {
+    fn push_node(&mut self, node: VectorNode) -> VectorNodeIndex {
+        let idx = self.nodes.len() as VectorNodeIndex;
+        self.nodes.push(node);
+        idx
+    }
+
+    fn get_or_create_info_set(&mut self, player: u8, history: &[u8], n_actions: u8) -> u32 {
+        let key = InfoSetKey {
+            player,
+            history: history.to_vec(),
+        };
+        if let Some(&idx) = self.info_set_map.get(&key) {
+            return idx;
+        }
+        let idx = self.next_info_set_idx;
+        self.info_set_map.insert(key, idx);
+        self.next_info_set_idx += 1;
+        self.actions_per_info_set.push(n_actions);
+        idx
+    }
+
+    fn build_action_node(&mut self, player: u8, state: &TurnBuildState) -> VectorNodeIndex {
+        let pot = state.pot_contributions[0] + state.pot_contributions[1];
+        let to_call =
+            state.pot_contributions[1 - player as usize] - state.pot_contributions[player as usize];
+        let stack = state.stacks[player as usize];
+
+        let (actions, action_codes) = self.enumerate_actions(state, pot, to_call, stack);
+        let n_actions = actions.len() as u8;
+
+        let info_set_idx = self.get_or_create_info_set(player, &state.action_history, n_actions);
+
+        let mut children: Vec<VectorNodeIndex> = Vec::with_capacity(actions.len());
+        for (action, code) in actions.iter().zip(action_codes.iter()) {
+            let child = self.build_action_child(player, state, action, *code);
+            children.push(child);
+        }
+
+        self.push_node(VectorNode::Decision {
+            player,
+            actions,
+            children,
+            info_set_idx,
+        })
+    }
+
+    fn enumerate_actions(
+        &self,
+        state: &TurnBuildState,
+        pot: f32,
+        to_call: f32,
+        stack: f32,
+    ) -> (Vec<Action>, Vec<u8>) {
+        let mut actions = Vec::new();
+        let mut codes = Vec::new();
+
+        // Choose per-street bet/raise sizes.
+        let bet_sizes: &[f64] = if state.street == 0 {
+            &self.bet_config.turn_bets
+        } else {
+            &self.bet_config.river_bets
+        };
+        let raise_sizes: &[f64] = if state.street == 0 {
+            &self.bet_config.turn_raises
+        } else {
+            &self.bet_config.river_raises
+        };
+
+        if to_call > 0.0 {
+            actions.push(Action::Fold);
+            codes.push(0);
+            actions.push(Action::Call);
+            codes.push(1);
+
+            if state.raises_this_street < self.bet_config.max_raises_per_street {
+                for &size_fraction in raise_sizes {
+                    let raise_amount = (pot + to_call) * size_fraction as f32;
+                    let total_to_put_in = to_call + raise_amount;
+                    if total_to_put_in < stack {
+                        actions.push(Action::bet_from_fraction(size_fraction));
+                        codes.push(2 + (size_fraction * 100.0) as u8);
+                    }
+                }
+                if self.bet_config.always_allow_allin && stack > to_call {
+                    actions.push(Action::AllIn);
+                    codes.push(255);
+                }
+            }
+        } else {
+            actions.push(Action::Check);
+            codes.push(0);
+
+            for &size_fraction in bet_sizes {
+                let bet_amount = pot * size_fraction as f32;
+                if bet_amount < stack {
+                    actions.push(Action::bet_from_fraction(size_fraction));
+                    codes.push(1 + (size_fraction * 100.0) as u8);
+                }
+            }
+            if self.bet_config.always_allow_allin && stack > 0.0 {
+                actions.push(Action::AllIn);
+                codes.push(255);
+            }
+        }
+
+        (actions, codes)
+    }
+
+    fn build_action_child(
+        &mut self,
+        player: u8,
+        state: &TurnBuildState,
+        action: &Action,
+        action_code: u8,
+    ) -> VectorNodeIndex {
+        let opponent = 1 - player;
+        let pot = state.pot_contributions[0] + state.pot_contributions[1];
+        let to_call =
+            state.pot_contributions[opponent as usize] - state.pot_contributions[player as usize];
+
+        let mut new_state = state.clone();
+        new_state.action_history.push(action_code);
+
+        match action {
+            Action::Fold => {
+                let pot_won = state.pot_contributions[player as usize];
+                self.push_node(VectorNode::Fold {
+                    winner: opponent,
+                    pot_won,
+                })
+            }
+            Action::Check => {
+                if player == 1 {
+                    // Both checked → end of street.
+                    self.end_of_street(&new_state)
+                } else {
+                    self.build_action_node(opponent, &new_state)
+                }
+            }
+            Action::Call => {
+                new_state.pot_contributions[player as usize] += to_call;
+                new_state.stacks[player as usize] -= to_call;
+                self.end_of_street(&new_state)
+            }
+            Action::Bet(bp) => {
+                let size_fraction = *bp as f32 / 10000.0;
+                let amount = if to_call > 0.0 {
+                    let raise_amount = (pot + to_call) * size_fraction;
+                    to_call + raise_amount
+                } else {
+                    pot * size_fraction
+                };
+                let amount = amount.min(new_state.stacks[player as usize]);
+                new_state.pot_contributions[player as usize] += amount;
+                new_state.stacks[player as usize] -= amount;
+                new_state.raises_this_street += 1;
+                self.build_action_node(opponent, &new_state)
+            }
+            Action::AllIn => {
+                let amount = new_state.stacks[player as usize];
+                new_state.pot_contributions[player as usize] += amount;
+                new_state.stacks[player as usize] = 0.0;
+                new_state.raises_this_street += 1;
+                if new_state.stacks[opponent as usize] == 0.0 {
+                    self.end_of_street(&new_state)
+                } else {
+                    self.build_action_node(opponent, &new_state)
+                }
+            }
+        }
+    }
+
+    /// End-of-street transition: on the turn, deal the river via a chance
+    /// node. On the river, go to showdown.
+    fn end_of_street(&mut self, state: &TurnBuildState) -> VectorNodeIndex {
+        if state.street == 1 {
+            return self.push_showdown(state);
+        }
+
+        // Deal the river. Build one subtree per possible river card (48).
+        let mut children: Vec<(u8, VectorNodeIndex)> = Vec::with_capacity(48);
+        for card_idx in 0..52u8 {
+            let ranker_idx = match self.river_card_ranker_idx[card_idx as usize] {
+                Some(idx) => idx,
+                None => continue, // card is on the turn board
+            };
+            let mut next = state.clone();
+            next.street = 1;
+            next.raises_this_street = 0;
+            next.ranker_idx = ranker_idx;
+            // Push a street separator to the history so river info sets don't
+            // collide with turn info sets that share the same action sequence.
+            next.action_history.push(200 + card_idx);
+
+            // P0 acts first on the river.
+            let subtree = self.build_action_node(0, &next);
+            children.push((card_idx, subtree));
+        }
+
+        self.push_node(VectorNode::Chance { children })
+    }
+
+    fn push_showdown(&mut self, state: &TurnBuildState) -> VectorNodeIndex {
+        debug_assert!(
+            (state.pot_contributions[0] - state.pot_contributions[1]).abs() < 1e-3,
+            "showdown reached with mismatched contributions: {:?}",
+            state.pot_contributions
+        );
+        let half_pot = state.pot_contributions[0];
+        self.push_node(VectorNode::Showdown {
+            half_pot,
+            ranker_idx: state.ranker_idx,
+        })
     }
 }
 
@@ -361,8 +680,8 @@ mod tests {
     fn vector_solver_runs_one_iteration() {
         // Smoke test: full builder → solver → one iteration end-to-end.
         let tree = build_vector_river_tree(test_board(), 100.0, 200.0, simple_river_config());
-        let r0 = unit_reach(&tree.ranker);
-        let r1 = unit_reach(&tree.ranker);
+        let r0 = unit_reach(&tree.rankers[0]);
+        let r1 = unit_reach(&tree.rankers[0]);
         let config = SolverConfig {
             algorithm: CfrAlgorithm::CfrPlus,
             iterations: 1,
@@ -382,8 +701,8 @@ mod tests {
     #[test]
     fn dcfr_value_converges_on_full_range_river() {
         let tree = build_vector_river_tree(test_board(), 100.0, 200.0, simple_river_config());
-        let r0 = unit_reach(&tree.ranker);
-        let r1 = unit_reach(&tree.ranker);
+        let r0 = unit_reach(&tree.rankers[0]);
+        let r1 = unit_reach(&tree.rankers[0]);
         // DCFR converges faster than CFR+ for a fixed iteration budget on
         // these tree sizes, so it gives a tighter convergence signal.
         let config = SolverConfig {
@@ -473,6 +792,131 @@ mod tests {
             bet_mass >= 0.5,
             "AA should value-bet at least half the time, got bet_mass={bet_mass:.3}, strat={aa_strat:?}"
         );
+    }
+
+    fn turn_board() -> [Card; 4] {
+        [
+            Card::new(Rank::Ace, Suit::Spades),
+            Card::new(Rank::King, Suit::Hearts),
+            Card::new(Rank::Queen, Suit::Diamonds),
+            Card::new(Rank::Seven, Suit::Clubs),
+        ]
+    }
+
+    fn simple_turn_config() -> BetSizingConfig {
+        BetSizingConfig {
+            turn_bets: vec![0.75],
+            turn_raises: vec![],
+            river_bets: vec![0.75],
+            river_raises: vec![],
+            always_allow_allin: false,
+            max_raises_per_street: 1,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn turn_tree_has_48_river_rankers() {
+        // A 4-card turn board leaves 48 possible river cards; the builder
+        // should pre-compute one ranker per river card.
+        let tree = build_vector_turn_tree(turn_board(), 100.0, 200.0, simple_turn_config());
+        assert_eq!(
+            tree.rankers.len(),
+            48,
+            "expected 48 rankers (one per river card); got {}",
+            tree.rankers.len()
+        );
+    }
+
+    #[test]
+    fn turn_tree_contains_chance_node() {
+        let tree = build_vector_turn_tree(turn_board(), 100.0, 200.0, simple_turn_config());
+        let n_chance = tree
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, VectorNode::Chance { .. }))
+            .count();
+        assert!(
+            n_chance >= 1,
+            "expected at least one Chance node in turn tree; got {n_chance}"
+        );
+        // Each chance node should have exactly 48 children (one per river
+        // card given a 4-card turn board).
+        for node in &tree.nodes {
+            if let VectorNode::Chance { children } = node {
+                assert_eq!(
+                    children.len(),
+                    48,
+                    "chance node should have 48 river children"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn turn_tree_showdown_ranker_indices_in_bounds() {
+        let tree = build_vector_turn_tree(turn_board(), 100.0, 200.0, simple_turn_config());
+        let n_rankers = tree.rankers.len();
+        let mut seen_indices = std::collections::HashSet::new();
+        for node in &tree.nodes {
+            if let VectorNode::Showdown { ranker_idx, .. } = node {
+                assert!(
+                    (*ranker_idx as usize) < n_rankers,
+                    "ranker_idx {ranker_idx} out of range (have {n_rankers} rankers)"
+                );
+                seen_indices.insert(*ranker_idx);
+            }
+        }
+        // All 48 river rankers should be referenced by at least one showdown.
+        assert_eq!(
+            seen_indices.len(),
+            48,
+            "every river card should produce at least one showdown"
+        );
+    }
+
+    #[test]
+    fn turn_tree_solver_runs_one_iteration() {
+        let tree = build_vector_turn_tree(turn_board(), 100.0, 200.0, simple_turn_config());
+        // Unit reach over combos not blocked by any of the turn board cards.
+        let mut r0 = Box::new([0.0f32; N_COMBOS]);
+        let mut r1 = Box::new([0.0f32; N_COMBOS]);
+        // The turn board is the same set of blocked cards for every river
+        // card, so `rankers[0].is_blocked` over-approximates blocking (it
+        // blocks the extra river card too). Use a ranker built on the turn
+        // board only for unit reach — or just seed everything to 1.0 and
+        // let the traversal handle it.
+        for i in 0..N_COMBOS {
+            r0[i] = 1.0;
+            r1[i] = 1.0;
+        }
+        // Zero combos that contain any turn-board card (otherwise the
+        // iteration value includes bogus starting-reach mass).
+        for c in turn_board().iter() {
+            let card_idx = c.index() as usize;
+            for other in 0..52usize {
+                if other == card_idx {
+                    continue;
+                }
+                let (lo, hi) = if card_idx < other {
+                    (card_idx, other)
+                } else {
+                    (other, card_idx)
+                };
+                let idx = (lo * 103) / 2 - (lo * lo) / 2 + hi - lo - 1;
+                r0[idx] = 0.0;
+                r1[idx] = 0.0;
+            }
+        }
+
+        let config = SolverConfig {
+            algorithm: CfrAlgorithm::CfrPlus,
+            iterations: 1,
+            ..Default::default()
+        };
+        let mut solver = VectorCfrSolver::new(tree, r0, r1, config);
+        let v = solver.run_iteration(0);
+        assert!(v.is_finite(), "turn iteration value should be finite: {v}");
     }
 
     #[test]

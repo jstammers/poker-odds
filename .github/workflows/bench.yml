@@ -19,23 +19,19 @@ permissions:
 
 jobs:
   # ── Run benchmarks on the base branch (what the PR is merging into) ──────────
-  # Each benchmark binary runs in its own parallel matrix job.
-  # Results are cached by (binary, base branch HEAD SHA) so they are only
-  # re-run when the base branch itself advances.
+  # Results are cached by base branch HEAD SHA so they are only re-run when
+  # the base branch itself advances.
 
   bench-base:
-    name: Benchmark base (${{ matrix.bench }})
+    name: Benchmark base
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        bench: [eval_bench, sim_bench, solver_bench]
     steps:
       - name: Restore cached base-branch results
         id: cache-base
         uses: actions/cache@v4
         with:
           path: target/criterion/
-          key: bench-base-${{ matrix.bench }}-${{ github.event.pull_request.base.sha }}
+          key: bench-base-${{ github.event.pull_request.base.sha }}
 
       - uses: actions/checkout@v4
         if: steps.cache-base.outputs.cache-hit != 'true'
@@ -48,28 +44,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.cache-base.outputs.cache-hit != 'true'
         with:
-          shared-key: bench-base-${{ matrix.bench }}-${{ github.base_ref }}
+          shared-key: bench-base-${{ github.base_ref }}
 
       - name: Run benchmarks
         if: steps.cache-base.outputs.cache-hit != 'true'
-        run: cargo bench --bench ${{ matrix.bench }}
+        run: cargo bench
 
       - name: Upload Criterion results
         uses: actions/upload-artifact@v4
         with:
-          name: bench-base-${{ matrix.bench }}
+          name: bench-base
           path: target/criterion/
           retention-days: 1
 
   # ── Run benchmarks on the PR branch ─────────────────────────────────────────
-  # Each benchmark binary runs in its own parallel matrix job.
 
   bench-pr:
-    name: Benchmark PR (${{ matrix.bench }})
+    name: Benchmark PR
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        bench: [eval_bench, sim_bench, solver_bench]
     steps:
       - uses: actions/checkout@v4
 
@@ -77,15 +69,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: bench-pr-${{ matrix.bench }}-${{ github.sha }}
+          shared-key: bench-pr-${{ github.sha }}
 
       - name: Run benchmarks
-        run: cargo bench --bench ${{ matrix.bench }}
+        run: cargo bench
 
       - name: Upload Criterion results
         uses: actions/upload-artifact@v4
         with:
-          name: bench-pr-${{ matrix.bench }}
+          name: bench-pr
           path: target/criterion/
           retention-days: 1
 
@@ -98,15 +90,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: bench-base-*
+          name: bench-base
           path: bench-base/
-          merge-multiple: true
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: bench-pr-*
+          name: bench-pr
           path: bench-pr/
-          merge-multiple: true
 
       - name: Generate comparison table
         run: |

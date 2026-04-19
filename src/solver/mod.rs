@@ -12,3 +12,4 @@ pub mod toy_games;
 pub mod upi;
 pub mod vector_cfr;
 pub mod vector_info_set;
+pub mod vector_postflop;

@@ -199,6 +199,60 @@ impl ShowdownRanker {
         (ev_p0, ev_p1)
     }
 
+    /// Per-combo showdown EV against an opponent drawing from `opp_reach`.
+    ///
+    /// Returns `ev[i]` = Σ_j (i beats j) · opp_reach[j] − Σ_j (j beats i) · opp_reach[j]
+    /// over combos `j` compatible with `i`, in units of "fraction of pot won".
+    ///
+    /// Equivalent to one side of [`terminal_ev`]. Vector CFR traversal only
+    /// needs the traversing player's side at each showdown terminal, so this
+    /// halves the work versus [`terminal_ev`] on that hot path.
+    pub fn ev_vs_opponent(&self, opp_reach: &[f32; N_COMBOS]) -> Box<[f32; N_COMBOS]> {
+        let mut ev = Box::new([0.0f32; N_COMBOS]);
+        self.fill_ev_one_side(opp_reach, &mut ev);
+        ev
+    }
+
+    /// Per-combo sum of opponent reach over combos compatible with combo `i`.
+    ///
+    /// `out[i] = Σ_{j: j ∩ i = ∅} opp_reach[j]`, i.e. the probability the
+    /// opponent holds a card-compatible hand given a uniform prior over their
+    /// reach vector. Used at fold terminals, where the per-combo CFR value is
+    /// a constant sign times this sum.
+    ///
+    /// Computed by inclusion-exclusion on "j contains card a or card b of i"
+    /// using 52 f32 subtracts per combo, same technique as the showdown fast
+    /// path. Blocked combos produce 0.
+    pub fn compatible_reach_sum(&self, opp_reach: &[f32; N_COMBOS]) -> Box<[f32; N_COMBOS]> {
+        let mut out = Box::new([0.0f32; N_COMBOS]);
+
+        let mut s_total = 0.0f32;
+        let mut s_total_c = [0.0f32; N_CARDS];
+        for &idx in &self.rank_order {
+            let r = opp_reach[idx as usize];
+            if r == 0.0 {
+                continue;
+            }
+            let (a, b) = self.cards[idx as usize];
+            s_total += r;
+            s_total_c[a as usize] += r;
+            s_total_c[b as usize] += r;
+        }
+
+        // For combo i = (a, b): combos j compatible with i are exactly those
+        // that don't contain a and don't contain b. By inclusion-exclusion:
+        //   compat(i) = s_total - s_total_c[a] - s_total_c[b] + opp_reach[i]
+        // (we add `opp_reach[i]` back because combo i itself is subtracted
+        // twice — it contains both a and b.)
+        for &idx in &self.rank_order {
+            let (a, b) = self.cards[idx as usize];
+            out[idx as usize] =
+                s_total - s_total_c[a as usize] - s_total_c[b as usize] + opp_reach[idx as usize];
+        }
+
+        out
+    }
+
     /// Compute ev[i] for every unblocked combo i, where ev[i] is the fraction
     /// of pot the holder of i wins against an opponent drawing from `opp_reach`.
     ///
@@ -451,6 +505,67 @@ mod tests {
                     slow_p1[i]
                 );
             }
+        }
+    }
+
+    #[test]
+    fn ev_vs_opponent_matches_terminal_ev_side() {
+        let board = test_board();
+        let ranker = ShowdownRanker::new(&board);
+        let mut reach_p0 = [0.0f32; N_COMBOS];
+        let mut reach_p1 = [0.0f32; N_COMBOS];
+        let mut state = 0xc0ffee_u64;
+        for i in 0..N_COMBOS {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let v = ((state >> 40) & 0xffff) as f32 / 65535.0;
+            if !ranker.is_blocked(i as u16) {
+                reach_p0[i] = v;
+                reach_p1[i] = 1.0 - v;
+            }
+        }
+        let (ev_p0, ev_p1) = ranker.terminal_ev(&reach_p0, &reach_p1);
+        let one_p0 = ranker.ev_vs_opponent(&reach_p1);
+        let one_p1 = ranker.ev_vs_opponent(&reach_p0);
+        for i in 0..N_COMBOS {
+            assert!((ev_p0[i] - one_p0[i]).abs() < 1e-6);
+            assert!((ev_p1[i] - one_p1[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn compatible_reach_sum_naive_agreement() {
+        let board = test_board();
+        let ranker = ShowdownRanker::new(&board);
+        let mut reach = [0.0f32; N_COMBOS];
+        let mut state = 0x1234_abcd_u64;
+        for (i, slot) in reach.iter_mut().enumerate() {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let v = ((state >> 40) & 0xffff) as f32 / 65535.0;
+            if !ranker.is_blocked(i as u16) {
+                *slot = v;
+            }
+        }
+        let fast = ranker.compatible_reach_sum(&reach);
+
+        // Naive reference: for each i, sum opponent reach over combos
+        // that share no card with i.
+        for i in 0..N_COMBOS {
+            if ranker.blocked[i] {
+                continue;
+            }
+            let m_i = ranker.mask[i];
+            let expected: f32 = reach
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| !ranker.blocked[*j] && (m_i & ranker.mask[*j]) == 0)
+                .map(|(_, r)| *r)
+                .sum();
+            assert!(
+                (fast[i] - expected).abs() < 1e-3,
+                "compatible_reach_sum[{i}] fast={} expected={}",
+                fast[i],
+                expected
+            );
         }
     }
 

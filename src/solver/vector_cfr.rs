@@ -10,18 +10,24 @@
 //!
 //! ## Scope
 //!
-//! A *river subgame*: fixed 5-card board, no chance nodes, both players act
-//! with known starting ranges. Every leaf is either:
+//! Postflop subgames with optional chance nodes for dealing the next street
+//! card. Every leaf is either:
 //!
 //! - [`VectorNode::Showdown`] — the two remaining ranges are compared via
-//!   [`ShowdownRanker::ev_vs_opponent`], scaled by `half_pot`.
+//!   [`ShowdownRanker::ev_vs_opponent`], scaled by `half_pot`. A
+//!   per-showdown [`ShowdownRanker`] is selected by `ranker_idx` into
+//!   [`VectorGameTree::rankers`], so a tree can cover multiple final boards
+//!   (e.g. turn-to-river trees where every river card produces a different
+//!   5-card showdown board).
 //! - [`VectorNode::Fold`] — one player folded; winner collects `pot_won`,
 //!   loser pays it, modulated per combo by "how much of opponent reach is
-//!   compatible with this combo".
+//!   compatible with this combo". Fold compatibility is board-independent so
+//!   there is no ranker selector here.
 //!
-//! Generalising to earlier streets with chance nodes is a follow-up: the
-//! traversal signature stays the same, but tree construction needs to
-//! enumerate turn/river deals as chance branches.
+//! [`VectorNode::Chance`] enumerates the next card drawn; traversal averages
+//! child values uniformly and zeros out per-combo reach for combos that
+//! contain the dealt card (the player can't hold a card that's now on the
+//! board).
 //!
 //! ## Output
 //!
@@ -73,18 +79,34 @@ pub enum VectorNode {
     },
     /// Showdown terminal. `half_pot` is the pot at the terminal divided by 2
     /// — the amount each side gains (wins) or loses against the other at a
-    /// full showdown, in chips.
-    Showdown { half_pot: f32 },
+    /// full showdown, in chips. `ranker_idx` selects which ranker in
+    /// [`VectorGameTree::rankers`] evaluates this showdown (different
+    /// chance branches deal different boards → different rankers).
+    Showdown { half_pot: f32, ranker_idx: u16 },
     /// Fold terminal. The `winner` player collects `pot_won` chips (= the
     /// amount the folder put in already, which is theirs to lose). Per-combo
     /// EV is scaled by the opponent's combo-compatible reach mass.
     Fold { winner: u8, pot_won: f32 },
+    /// Chance node: a single community card is dealt uniformly at random
+    /// from the remaining deck. `children` is a sparse list of
+    /// `(card_index, subtree_root)` pairs — one entry per card that was
+    /// still in the deck at build time.
+    ///
+    /// Averaging weight is `1 / children.len()` (uniform over remaining
+    /// cards). Combos that share a card with the dealt card are pruned from
+    /// the reach vectors passed into the child subtree — they can't be
+    /// held simultaneously with the new board card.
+    Chance {
+        children: Vec<(u8, VectorNodeIndex)>,
+    },
 }
 
-/// Flat-arena vector-form game tree for a river subgame.
+/// Flat-arena vector-form game tree for a postflop subgame.
 ///
-/// The tree is paired with a single [`ShowdownRanker`] because every showdown
-/// terminal shares the same 5-card board.
+/// `rankers` holds one [`ShowdownRanker`] per distinct final (5-card) board
+/// reachable in this tree. A river subgame has a single ranker; a
+/// turn-to-river tree has one per river card (48 in a heads-up holdem
+/// runout). Showdown nodes reference their ranker by index.
 #[derive(Clone)]
 pub struct VectorGameTree {
     pub nodes: Vec<VectorNode>,
@@ -92,8 +114,10 @@ pub struct VectorGameTree {
     /// Number of actions at each info set, indexed by `info_set_idx`. Shape
     /// mirrors [`crate::solver::game_tree::GameTree::actions_per_info_set`].
     pub actions_per_info_set: Vec<u8>,
-    /// Precomputed showdown evaluator for the fixed board.
-    pub ranker: ShowdownRanker,
+    /// Precomputed showdown evaluators, one per distinct final board. Fold
+    /// terminals use `rankers[0]` for the board-independent compatibility
+    /// sum; showdown terminals use `rankers[ranker_idx]` for EV.
+    pub rankers: Vec<ShowdownRanker>,
 }
 
 /// Vector CFR solver. Analogous to [`crate::solver::cfr::CfrSolver`] but
@@ -187,13 +211,17 @@ fn vector_cfr_traverse(
     traversing_player: u8,
 ) -> Box<[f32; N_COMBOS]> {
     match &tree.nodes[node_idx as usize] {
-        VectorNode::Showdown { half_pot } => {
+        VectorNode::Showdown {
+            half_pot,
+            ranker_idx,
+        } => {
             let opp_reach = if traversing_player == 0 {
                 reach_p1
             } else {
                 reach_p0
             };
-            let mut ev = tree.ranker.ev_vs_opponent(opp_reach);
+            let ranker = &tree.rankers[*ranker_idx as usize];
+            let mut ev = ranker.ev_vs_opponent(opp_reach);
             if *half_pot != 1.0 {
                 for v in ev.iter_mut() {
                     *v *= half_pot;
@@ -207,7 +235,10 @@ fn vector_cfr_traverse(
             } else {
                 reach_p0
             };
-            let compat = tree.ranker.compatible_reach_sum(opp_reach);
+            // Fold compatibility is pure inclusion-exclusion over opp_reach
+            // (which already has zeros for blocked combos), so any ranker
+            // gives the same answer — `rankers[0]` is always present.
+            let compat = tree.rankers[0].compatible_reach_sum(opp_reach);
             let sign = if *winner == traversing_player {
                 1.0
             } else {
@@ -217,6 +248,31 @@ fn vector_cfr_traverse(
             let mut ev = compat;
             for v in ev.iter_mut() {
                 *v *= scale;
+            }
+            ev
+        }
+        VectorNode::Chance { children } => {
+            // Average per-combo value uniformly over the remaining deck.
+            // For each dealt card `c`, zero out reach for combos that
+            // contain `c` (they can't be held after the deal) before
+            // recursing into the child subtree for that card.
+            let weight = 1.0 / children.len() as f32;
+            let mut ev = Box::new([0.0f32; N_COMBOS]);
+            for &(card, child) in children {
+                let new_reach_p0 = zero_reach_blocked_by_card(reach_p0, card);
+                let new_reach_p1 = zero_reach_blocked_by_card(reach_p1, card);
+                let child_v = vector_cfr_traverse(
+                    tree,
+                    store,
+                    use_cfr_plus,
+                    child,
+                    &new_reach_p0,
+                    &new_reach_p1,
+                    traversing_player,
+                );
+                for (slot, v) in ev.iter_mut().zip(child_v.iter()) {
+                    *slot += weight * *v;
+                }
             }
             ev
         }
@@ -310,6 +366,33 @@ fn vector_cfr_traverse(
     }
 }
 
+/// Returns a copy of `reach` with all combos that contain `card` set to 0.0.
+///
+/// A combo is blocked by `card` if either of its two cards equals `card`. The
+/// triangular combo encoding means the 51 blocked combos for any single card
+/// are addressable by index arithmetic — no decode, no scan over the 1326
+/// combos. This is the hot path when a chance branch deals a card.
+#[inline]
+fn zero_reach_blocked_by_card(reach: &[f32; N_COMBOS], card: u8) -> Box<[f32; N_COMBOS]> {
+    let mut out = Box::new([0.0f32; N_COMBOS]);
+    out.copy_from_slice(reach);
+    let card = card as usize;
+    for other in 0..52usize {
+        if other == card {
+            continue;
+        }
+        let (lo, hi) = if card < other {
+            (card, other)
+        } else {
+            (other, card)
+        };
+        // Triangular encoding: combo_index(lo, hi).
+        let idx = (lo * 103) / 2 - (lo * lo) / 2 + hi - lo - 1;
+        out[idx] = 0.0;
+    }
+    out
+}
+
 /// Per-combo reach scaled by strategy at one action.
 ///
 /// Reach is combo-indexed (`[f32; N_COMBOS]`); strategy is combo-major with
@@ -359,7 +442,10 @@ mod tests {
         let fold_idx = 1;
         let decision_idx = 2;
         let nodes = vec![
-            VectorNode::Showdown { half_pot },
+            VectorNode::Showdown {
+                half_pot,
+                ranker_idx: 0,
+            },
             VectorNode::Fold {
                 winner: 1,
                 pot_won: fold_pot,
@@ -375,7 +461,7 @@ mod tests {
             nodes,
             root: decision_idx,
             actions_per_info_set: vec![2],
-            ranker,
+            rankers: vec![ranker],
         }
     }
 
@@ -394,14 +480,14 @@ mod tests {
         let tree = tiny_tree(10.0, 0.0);
         let store_input: Vec<u8> = tree.actions_per_info_set.clone();
         let mut store = VectorInfoSetStore::new(&store_input);
-        let r0 = unit_reach(&tree.ranker);
-        let r1 = unit_reach(&tree.ranker);
+        let r0 = unit_reach(&tree.rankers[0]);
+        let r1 = unit_reach(&tree.rankers[0]);
 
         // Call the showdown node directly.
         let v = vector_cfr_traverse(&tree, &mut store, true, 0, &r0, &r1, 0);
 
         // Must match ranker.ev_vs_opponent(r1) * 10.0 on every unblocked combo.
-        let ref_ev = tree.ranker.ev_vs_opponent(&r1);
+        let ref_ev = tree.rankers[0].ev_vs_opponent(&r1);
         for i in 0..N_COMBOS {
             assert!(
                 (v[i] - ref_ev[i] * 10.0).abs() < 1e-4,
@@ -417,8 +503,8 @@ mod tests {
         // P1 wins fold of pot 4.0.
         let tree = tiny_tree(0.0, 4.0);
         let mut store = VectorInfoSetStore::new(&tree.actions_per_info_set);
-        let r0 = unit_reach(&tree.ranker);
-        let r1 = unit_reach(&tree.ranker);
+        let r0 = unit_reach(&tree.rankers[0]);
+        let r1 = unit_reach(&tree.rankers[0]);
 
         // Traversing = P0 (the loser): value should be -4 * compat_sum.
         let v0 = vector_cfr_traverse(&tree, &mut store, true, 1, &r0, &r1, 0);
@@ -426,7 +512,7 @@ mod tests {
         let v1 = vector_cfr_traverse(&tree, &mut store, true, 1, &r0, &r1, 1);
 
         for i in 0..N_COMBOS {
-            if tree.ranker.is_blocked(i as u16) {
+            if tree.rankers[0].is_blocked(i as u16) {
                 continue;
             }
             // v0[i] = -v1[i] (zero-sum at fold given symmetric reaches).
@@ -438,6 +524,96 @@ mod tests {
             );
             // Sign check: folder (P0) should get non-positive values.
             assert!(v0[i] <= 1e-4, "combo {i}: folder got positive {}", v0[i]);
+        }
+    }
+
+    #[test]
+    fn zero_reach_blocked_by_card_removes_all_containing_combos() {
+        use crate::solver::range::HandRange;
+        let reach = [1.0f32; N_COMBOS];
+        let card = Card::new(Rank::Ace, Suit::Spades);
+        let out = zero_reach_blocked_by_card(&reach, card.index());
+
+        let mut zeroed = 0usize;
+        for combo in 0..N_COMBOS as u16 {
+            let (c1, c2) = HandRange::cards_from_index(combo);
+            let contains_card = c1.index() == card.index() || c2.index() == card.index();
+            if contains_card {
+                assert!(
+                    out[combo as usize] == 0.0,
+                    "combo {combo} contains {:?} but reach is {}",
+                    card,
+                    out[combo as usize]
+                );
+                zeroed += 1;
+            } else {
+                assert!(
+                    out[combo as usize] == 1.0,
+                    "combo {combo} doesn't contain {:?} but reach changed to {}",
+                    card,
+                    out[combo as usize]
+                );
+            }
+        }
+        // Every card is in exactly 51 combos (paired with each of the other
+        // 51 cards).
+        assert_eq!(zeroed, 51, "expected 51 combos zeroed, got {zeroed}");
+    }
+
+    #[test]
+    fn chance_node_averages_child_values() {
+        // Build a tiny tree: chance node with 2 synthetic showdown children,
+        // each computing a fixed per-combo ev. The returned value at the
+        // chance node should be the average of the two.
+        let board = test_board();
+        let ranker = ShowdownRanker::new(&board);
+        let half_pot_a = 4.0;
+        let half_pot_b = 8.0;
+        let r0 = unit_reach(&ranker);
+        let r1 = unit_reach(&ranker);
+
+        // Two showdown nodes with different half_pot, one chance node on top.
+        // We pick two arbitrary "dealt" cards not on the test board so
+        // reach-zeroing is observable.
+        let card_a = Card::new(Rank::Three, Suit::Hearts).index();
+        let card_b = Card::new(Rank::Four, Suit::Diamonds).index();
+        let nodes = vec![
+            VectorNode::Showdown {
+                half_pot: half_pot_a,
+                ranker_idx: 0,
+            },
+            VectorNode::Showdown {
+                half_pot: half_pot_b,
+                ranker_idx: 0,
+            },
+            VectorNode::Chance {
+                children: vec![(card_a, 0), (card_b, 1)],
+            },
+        ];
+        let tree = VectorGameTree {
+            nodes,
+            root: 2,
+            actions_per_info_set: vec![],
+            rankers: vec![ranker],
+        };
+        let mut store = VectorInfoSetStore::new(&[]);
+
+        let v = vector_cfr_traverse(&tree, &mut store, true, 2, &r0, &r1, 0);
+
+        // Independent reference computation: for each child, zero combos
+        // blocked by its dealt card, compute ev, then average.
+        let r1_a = zero_reach_blocked_by_card(&r1, card_a);
+        let r1_b = zero_reach_blocked_by_card(&r1, card_b);
+        let ev_a = tree.rankers[0].ev_vs_opponent(&r1_a);
+        let ev_b = tree.rankers[0].ev_vs_opponent(&r1_b);
+        for i in 0..N_COMBOS {
+            let expected = 0.5 * (ev_a[i] * half_pot_a + ev_b[i] * half_pot_b);
+            assert!(
+                (v[i] - expected).abs() < 1e-3,
+                "combo {i}: got {} expected {}",
+                v[i],
+                expected
+            );
         }
     }
 
@@ -468,7 +644,10 @@ mod tests {
         r1[twos] = 1.0;
 
         let nodes = vec![
-            VectorNode::Showdown { half_pot: 5.0 },
+            VectorNode::Showdown {
+                half_pot: 5.0,
+                ranker_idx: 0,
+            },
             VectorNode::Fold {
                 winner: 1,
                 pot_won: 2.0,
@@ -484,7 +663,7 @@ mod tests {
             nodes,
             root: 2,
             actions_per_info_set: vec![2],
-            ranker,
+            rankers: vec![ranker],
         };
         let mut store = VectorInfoSetStore::new(&tree.actions_per_info_set);
 

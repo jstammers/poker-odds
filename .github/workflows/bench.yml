@@ -3,6 +3,11 @@ name: Benchmarks
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 concurrency:
   group: bench-${{ github.ref }}
@@ -14,22 +19,35 @@ permissions:
 
 jobs:
   # ── Run benchmarks on the base branch (what the PR is merging into) ──────────
+  # Results are cached by the base branch HEAD SHA so they are only re-run when
+  # the base branch itself advances.
 
   bench-base:
     name: Benchmark (base)
     runs-on: ubuntu-latest
     steps:
+      - name: Restore cached base-branch results
+        id: cache-base
+        uses: actions/cache@v4
+        with:
+          path: target/criterion/
+          key: bench-base-${{ github.event.pull_request.base.sha }}
+
       - uses: actions/checkout@v4
+        if: steps.cache-base.outputs.cache-hit != 'true'
         with:
           ref: ${{ github.base_ref }}
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.cache-base.outputs.cache-hit != 'true'
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.cache-base.outputs.cache-hit != 'true'
         with:
           shared-key: bench-base-${{ github.base_ref }}
 
       - name: Run benchmarks
+        if: steps.cache-base.outputs.cache-hit != 'true'
         run: cargo bench
 
       - name: Upload Criterion results

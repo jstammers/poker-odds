@@ -67,6 +67,11 @@ pub struct SolverParams {
     pub street: Street,
     pub range_oop: String,
     pub range_ip: String,
+    /// If true and `street` is Turn or River, use the per-combo vector
+    /// CFR solver (`VectorCfrSolver`) via the public
+    /// [`crate::solver::vector_api`] facade. Flop falls back to scalar
+    /// regardless.
+    pub use_vector: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -76,6 +81,7 @@ enum Field {
     RangeOOP,
     RangeIP,
     Algorithm,
+    UseVector,
     Iterations,
     StartingPot,
     EffectiveStack,
@@ -85,12 +91,13 @@ enum Field {
 }
 
 impl Field {
-    const ALL: [Field; 11] = [
+    const ALL: [Field; 12] = [
         Field::Street,
         Field::Board,
         Field::RangeOOP,
         Field::RangeIP,
         Field::Algorithm,
+        Field::UseVector,
         Field::Iterations,
         Field::StartingPot,
         Field::EffectiveStack,
@@ -106,6 +113,7 @@ impl Field {
             Field::RangeOOP => "OOP Range",
             Field::RangeIP => "IP Range",
             Field::Algorithm => "Algorithm",
+            Field::UseVector => "Solver",
             Field::Iterations => "Iterations",
             Field::StartingPot => "Starting Pot",
             Field::EffectiveStack => "Effective Stack",
@@ -122,6 +130,7 @@ impl Field {
             Field::RangeOOP => "Out-of-position range, e.g. AA,AKs,QQ-TT,AJs-A9s",
             Field::RangeIP => "In-position range, e.g. AA-22,AKs-A2s,KQs-KTs",
             Field::Algorithm => "CFR+ or DCFR (Discounted CFR converges faster)",
+            Field::UseVector => "Scalar (all streets) or Vector (PIOSolver-style; turn/river only)",
             Field::Iterations => "Number of CFR iterations (more = more precise, slower)",
             Field::StartingPot => "Total pot size in chips before this street",
             Field::EffectiveStack => "Chips remaining behind for each player",
@@ -150,6 +159,7 @@ pub struct SolverConfigScreen {
     bet_sizes: Vec<f64>,
     raise_sizes: Vec<f64>,
     max_raises: u8,
+    use_vector: bool,
     edit_buffer: String,
     editing: bool,
     error: Option<String>,
@@ -176,6 +186,7 @@ impl SolverConfigScreen {
             bet_sizes: vec![50.0, 75.0, 100.0],
             raise_sizes: vec![100.0],
             max_raises: 2,
+            use_vector: false,
             edit_buffer: String::new(),
             editing: false,
             error: None,
@@ -249,6 +260,9 @@ impl SolverConfigScreen {
                             CfrAlgorithm::CfrPlus => CfrAlgorithm::Dcfr,
                             CfrAlgorithm::Dcfr => CfrAlgorithm::CfrPlus,
                         };
+                    }
+                    Field::UseVector => {
+                        self.use_vector = !self.use_vector;
                     }
                     Field::Board => {} // Handled above
                     _ => self.start_edit(),
@@ -429,6 +443,7 @@ impl SolverConfigScreen {
             street: self.street,
             range_oop: self.range_oop.clone(),
             range_ip: self.range_ip.clone(),
+            use_vector: self.use_vector,
         })
     }
 
@@ -623,6 +638,13 @@ impl SolverConfigScreen {
                     CfrAlgorithm::CfrPlus => "CFR+".to_string(),
                     CfrAlgorithm::Dcfr => "DCFR (Discounted)".to_string(),
                 },
+                Field::UseVector => {
+                    if self.use_vector {
+                        "Vector  (Enter to toggle)".to_string()
+                    } else {
+                        "Scalar  (Enter to toggle)".to_string()
+                    }
+                }
                 Field::Iterations => format!("{}", self.iterations),
                 Field::StartingPot => format!("{:.0}", self.starting_pot),
                 Field::EffectiveStack => format!("{:.0}", self.effective_stack),

@@ -497,6 +497,7 @@ impl App {
                 starting_pot,
                 effective_stack,
                 bet_config: sizing,
+                ante: 0.0, // auto: starting_pot / 2
                 cfr_config: CfrSolverConfig {
                     algorithm,
                     iterations,
@@ -543,11 +544,10 @@ impl App {
                 p.iteration = iterations;
                 p.done = true;
                 p.game_value = out.game_value;
+                p.exploitability = Some(out.exploitability);
                 p.num_info_sets = out.num_info_sets;
                 p.num_nodes = out.num_nodes;
                 p.strategies = strategies;
-                // Vector exploitability is a follow-up (best-response
-                // routine). Leave as None.
             }
         });
     }

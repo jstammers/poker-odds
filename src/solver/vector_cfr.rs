@@ -371,9 +371,13 @@ fn vector_cfr_traverse(
 /// A combo is blocked by `card` if either of its two cards equals `card`. The
 /// triangular combo encoding means the 51 blocked combos for any single card
 /// are addressable by index arithmetic — no decode, no scan over the 1326
-/// combos. This is the hot path when a chance branch deals a card.
+/// combos. This is the hot path when a chance branch deals a card and when
+/// the best-response traversal zeroes the opponent's blocked combos.
 #[inline]
-fn zero_reach_blocked_by_card(reach: &[f32; N_COMBOS], card: u8) -> Box<[f32; N_COMBOS]> {
+pub(crate) fn zero_reach_blocked_by_card(
+    reach: &[f32; N_COMBOS],
+    card: u8,
+) -> Box<[f32; N_COMBOS]> {
     let mut out = Box::new([0.0f32; N_COMBOS]);
     out.copy_from_slice(reach);
     let card = card as usize;

@@ -33,6 +33,7 @@ use crate::solver::cfr::SolverConfig;
 use crate::solver::range::HandRange;
 use crate::solver::showdown::N_COMBOS;
 use crate::solver::vector_cfr::{VectorCfrSolver, VectorNode};
+use crate::solver::vector_exploitability::compute_vector_exploitability;
 use crate::solver::vector_postflop::{build_vector_river_tree, build_vector_turn_tree};
 
 /// Errors from the vector-CFR convenience API.
@@ -54,6 +55,10 @@ pub struct VectorSolverConfig {
     pub effective_stack: f32,
     pub bet_config: BetSizingConfig,
     pub cfr_config: SolverConfig,
+    /// Normalisation unit for exploitability (milli-ante per hand). Set to
+    /// `starting_pot / 2.0` to get mbb/hand in a HU pot, or `1.0` to get
+    /// milli-chip EV. Defaults to `starting_pot / 2.0` when 0.
+    pub ante: f32,
 }
 
 /// Averaged strategy at one info set, reduced to per-action probabilities by
@@ -71,13 +76,16 @@ pub struct VectorInfoSetStrategy {
     pub history_label: String,
 }
 
-/// Output of [`solve_vector`]: game value, tree size, and one aggregated
-/// strategy per info set.
+/// Output of [`solve_vector`]: game value, exploitability, tree size, and one
+/// aggregated strategy per info set.
 #[derive(Clone, Debug)]
 pub struct VectorSolverOutput {
     /// Time-averaged root value for player 0 (Σᵢ reach_p0[i] · v_p0[i]).
     /// With unit-weight ranges this is chip EV at the root to player 0.
     pub game_value: f64,
+    /// Exploitability in milli-ante per hand (see [`VectorSolverConfig::ante`]).
+    /// < 10 is near-Nash; < 50 is reasonable for display.
+    pub exploitability: f64,
     pub num_info_sets: u32,
     pub num_nodes: u32,
     pub strategies: Vec<VectorInfoSetStrategy>,
@@ -120,13 +128,28 @@ pub fn solve_vector(cfg: VectorSolverConfig) -> Result<VectorSolverOutput, Vecto
     let reach_p0 = hand_range_to_reach(&cfg.range_oop, &cfg.board);
     let reach_p1 = hand_range_to_reach(&cfg.range_ip, &cfg.board);
 
+    let ante = if cfg.ante > 0.0 {
+        cfg.ante
+    } else {
+        (cfg.starting_pot / 2.0).max(1.0)
+    };
+
     let mut solver = VectorCfrSolver::new(tree, reach_p0, reach_p1, cfg.cfr_config);
     let game_value = solver.solve();
+
+    let exploitability = compute_vector_exploitability(
+        &solver.tree,
+        &solver.store,
+        &solver.starting_reach[0],
+        &solver.starting_reach[1],
+        ante,
+    );
 
     let strategies = aggregate_strategy(&solver);
 
     Ok(VectorSolverOutput {
         game_value,
+        exploitability,
         num_info_sets,
         num_nodes,
         strategies,
@@ -334,10 +357,13 @@ mod tests {
                 iterations: 50,
                 ..Default::default()
             },
+            ante: 0.0,
         };
         let out = solve_vector(cfg).expect("river solve should succeed");
 
         assert!(out.game_value.is_finite());
+        assert!(out.exploitability.is_finite());
+        assert!(out.exploitability >= 0.0);
         assert!(out.num_info_sets > 0);
         assert!(out.num_nodes > 0);
         assert!(
@@ -376,6 +402,7 @@ mod tests {
                 iterations: 5,
                 ..Default::default()
             },
+            ante: 0.0,
         };
         let out = solve_vector(cfg).expect("turn solve should succeed");
         assert!(out.game_value.is_finite());
@@ -399,6 +426,7 @@ mod tests {
             effective_stack: 200.0,
             bet_config: BetSizingConfig::default(),
             cfr_config: SolverConfig::default(),
+            ante: 0.0,
         };
         let err = solve_vector(cfg).unwrap_err();
         assert!(matches!(err, VectorSolveError::UnsupportedStreet(3)));

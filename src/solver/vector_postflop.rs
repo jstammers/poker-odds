@@ -373,6 +373,108 @@ mod tests {
         assert!(v.is_finite(), "iteration value should be finite, got {v}");
     }
 
+    /// Run DCFR for a few hundred iterations on a real river config and
+    /// verify the running average game value stabilises. Convergence
+    /// signal: the average over the last quarter of iterations should
+    /// agree with the average over the previous quarter to within a small
+    /// absolute tolerance (chips). This is the cheapest practical
+    /// convergence proxy without a full vector best-response routine.
+    #[test]
+    fn dcfr_value_converges_on_full_range_river() {
+        let tree = build_vector_river_tree(test_board(), 100.0, 200.0, simple_river_config());
+        let r0 = unit_reach(&tree.ranker);
+        let r1 = unit_reach(&tree.ranker);
+        // DCFR converges faster than CFR+ for a fixed iteration budget on
+        // these tree sizes, so it gives a tighter convergence signal.
+        let config = SolverConfig {
+            algorithm: CfrAlgorithm::Dcfr,
+            iterations: 400,
+            ..Default::default()
+        };
+        let mut solver = VectorCfrSolver::new(tree, r0, r1, config);
+
+        // Run iteration-by-iteration so we can split the value sequence
+        // into halves and compare averages without re-solving.
+        let n = solver.config.iterations as usize;
+        let mut vals: Vec<f64> = Vec::with_capacity(n);
+        for t in 0..n {
+            vals.push(solver.run_iteration(t as u32));
+        }
+
+        let avg = |slice: &[f64]| slice.iter().sum::<f64>() / slice.len() as f64;
+        let q = n / 4;
+        let mid = avg(&vals[n / 2 - q..n / 2]);
+        let late = avg(&vals[n - q..n]);
+
+        // Iteration value is `Σᵢ reach_p0[i] · v_p0[i]` summed over all
+        // ~1326 combos and weighted by the showdown ev kernel — so for
+        // unit reach it's naturally on the order of N_COMBOS² · half_pot.
+        // Use a relative tolerance: the two windows should agree within
+        // 2% of magnitude. This catches divergence (regrets blowing up,
+        // which manifests as much larger drift) and zero-progress (mid
+        // and late wildly different) without being sensitive to scale.
+        let denom = mid.abs().max(late.abs()).max(1.0);
+        let rel = (mid - late).abs() / denom;
+        assert!(
+            rel < 0.02,
+            "DCFR value not converging: mid={mid:.3}, late={late:.3}, rel={rel:.4}"
+        );
+        assert!(late.is_finite(), "DCFR value not finite: late={late:.3}");
+    }
+
+    /// On a one-combo-vs-one-combo dominating scenario (P0 has trips
+    /// against P1's low pair), the average strategy at the dominating
+    /// combo should put the bulk of its mass on a value-betting action,
+    /// not on checking down. This is a coarse correctness check for the
+    /// regret-matching loop on a full-shaped river tree.
+    #[test]
+    fn dcfr_strategy_value_bets_dominant_holding() {
+        use crate::solver::range::HandRange;
+        let board = test_board();
+        let tree = build_vector_river_tree(board, 40.0, 200.0, simple_river_config());
+
+        // P0 has AhAd (trips on AKQ72 board). P1 has 3h3d (under-pair).
+        let aa = HandRange::combo_index(
+            Card::new(Rank::Ace, Suit::Hearts),
+            Card::new(Rank::Ace, Suit::Diamonds),
+        ) as usize;
+        let twos = HandRange::combo_index(
+            Card::new(Rank::Three, Suit::Hearts),
+            Card::new(Rank::Three, Suit::Diamonds),
+        ) as usize;
+        let mut r0 = Box::new([0.0f32; N_COMBOS]);
+        let mut r1 = Box::new([0.0f32; N_COMBOS]);
+        r0[aa] = 1.0;
+        r1[twos] = 1.0;
+
+        let config = SolverConfig {
+            algorithm: CfrAlgorithm::Dcfr,
+            iterations: 600,
+            ..Default::default()
+        };
+        let mut solver = VectorCfrSolver::new(tree, r0, r1, config);
+        solver.solve();
+
+        // Read average strategy at the root info-set, combo aa.
+        // Root info_set_idx is whichever was assigned to the empty
+        // history for player 0 — it's the first one created, so == 0.
+        let n_actions = solver.tree.actions_per_info_set[0] as usize;
+        let mut avg = vec![0.0f32; n_actions * N_COMBOS];
+        solver.store.average_strategy_into(0, &mut avg);
+        let aa_strat: &[f32] = &avg[aa * n_actions..(aa + 1) * n_actions];
+
+        // Action 0 is `Check` per the simple river config. Bet actions
+        // (any of them) should have the bulk of the mass, since AA never
+        // loses to 33 — checking gives the same value but loses to nothing
+        // by betting either, and DCFR's discounting accelerates the
+        // regret signal toward bets that win money on opponent calls.
+        let bet_mass: f32 = aa_strat.iter().skip(1).sum();
+        assert!(
+            bet_mass >= 0.5,
+            "AA should value-bet at least half the time, got bet_mass={bet_mass:.3}, strat={aa_strat:?}"
+        );
+    }
+
     #[test]
     fn info_sets_dedup_per_player_history() {
         // No card abstraction here — info sets are uniquely keyed on

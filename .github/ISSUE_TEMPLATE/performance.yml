@@ -1,0 +1,71 @@
+name: Performance Improvement
+description: Report a performance bottleneck or propose an optimisation
+labels: ["performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for profiling findings, hot-path allocation reductions, SIMD opportunities,
+        parallelism improvements, or benchmark additions.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the project is the bottleneck in?
+      options:
+        - Hand evaluator (eval)
+        - Monte Carlo simulation (sim)
+        - CFR Solver — scalar path
+        - CFR Solver — vector path
+        - CFR Solver — tree building
+        - TUI
+        - Web / WASM
+        - Benchmarks
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the performance issue or proposed optimisation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling evidence
+      description: |
+        Paste Criterion output, flamegraph findings, or any other measurements that show the bottleneck.
+        If this is a proposal without measurements yet, describe why you believe it will help.
+
+  - type: textarea
+    id: relevant-code
+    attributes:
+      label: Relevant code locations
+      description: File paths and line numbers of the hot code (e.g. `src/solver/vector_cfr.rs:361`).
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed fix / approach
+      description: How would you address this? Include any API or data-structure changes.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checklist
+      options:
+        - label: Changes are backward-compatible (no public API break)
+        - label: WASM target must remain supported
+        - label: Requires new dependencies
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

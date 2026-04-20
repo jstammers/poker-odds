@@ -1,0 +1,72 @@
+name: Bug Report
+description: Report a bug or incorrect behaviour
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the project is affected?
+      options:
+        - Core library (cards / eval / sim)
+        - CFR Solver
+        - TUI
+        - Web / WASM
+        - Tauri desktop app
+        - Benchmarks
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps or code to reproduce the issue.
+      placeholder: |
+        1. Run `cargo test ...`
+        2. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened? Include any error messages or stack traces.
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust toolchain version
+      description: Output of `rustc --version`
+      placeholder: "e.g. rustc 1.78.0 (9b00956e5 2024-04-29)"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other relevant information (OS, WASM target, related PRs, etc.).
